@@ -7,11 +7,11 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework");
 
-struct foo {
-	int size; //< size of struct foo
+struct kftf_simple_arg {
+	int data;
 	int access;
 };
 
-void kftf_fuzzable(struct foo *foo);
+void kftf_fuzzable(struct kftf_simple_arg *foo);
 
 #endif /* KFTF_H */
