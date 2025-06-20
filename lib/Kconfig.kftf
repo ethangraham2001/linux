@@ -2,3 +2,4 @@
 
 config KFTF
 	tristate "Enable Kernel Fuzz Testing Framework (KFTF)"
+    depends on DEBUG_FS

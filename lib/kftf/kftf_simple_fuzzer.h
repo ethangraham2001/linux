@@ -8,7 +8,6 @@
 struct kftf_simple_fuzzer_state {
 	struct file_operations fops;
 	struct dentry *kftf_dir;
-	struct dentry *input_file;
 	char buffer[128]; //< buffer for user input
 };
 
@@ -36,31 +35,6 @@ static ssize_t kftf_fuzz_write(struct file *filp, const char __user *buf,
 	struct kftf_simple_arg *fuzz_arg = (void *)st.buffer;
 	kftf_fuzzable(fuzz_arg);
 	return len;
-}
-
-static int kftf_simple_fuzzer_init(void)
-{
-	st.kftf_dir = debugfs_create_dir("kftf", NULL);
-	if (!st.kftf_dir)
-		return 1; // TODO: proper errors
-
-	st.fops = (struct file_operations){
-		.owner = THIS_MODULE,
-		.write = kftf_fuzz_write,
-	};
-
-	st.input_file =
-		debugfs_create_file("input", 0222, st.kftf_dir, NULL, &st.fops);
-
-	if (!st.input_file)
-		return 1; // TODO: proper errors
-
-	return 0;
-}
-
-static void kftf_simple_fuzzer_cleanup(void)
-{
-	debugfs_remove(st.kftf_dir);
 }
 
 #endif /* KFTF_SIMPLE_FUZZER_H */
