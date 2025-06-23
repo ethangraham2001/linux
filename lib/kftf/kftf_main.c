@@ -7,26 +7,45 @@
 extern const struct kftf_test_case __kftf_start[];
 extern const struct kftf_test_case __kftf_end[];
 
-struct kftf_debugfs_state {
+#define KFTF_MAX_TEST_CASES 1024
+
+/// defines a dentry with file-operations
+struct kftf_dentry {
+	struct dentry *dentry;
 	struct file_operations fops;
+};
+
+/**
+ * Wraps teh state of the created
+ */
+struct kftf_debugfs_state {
 	struct dentry *test_dir;
-	struct dentry *input_file;
+	struct kftf_dentry input_dentry;
+	struct kftf_dentry metadata_dentry;
 };
 
 struct kftf_simple_fuzzer_state {
 	struct file_operations fops;
 	struct dentry *kftf_dir;
-	struct kftf_debugfs_state debugfs_state[1024]; // FIXME: fine for WIP
+	struct kftf_debugfs_state
+		debugfs_state[KFTF_MAX_TEST_CASES]; // FIXME: fine for WIP
 };
 
 static struct kftf_simple_fuzzer_state st;
 
-// XXX: allows everyone to write - correct flags?
-const umode_t kftf_debug_fs_flags = 0222;
+// XXX: be careful of flags here
+const umode_t kftf_flags_w = 0666;
+const umode_t kftf_flags_r = 0444;
 
 static int __init kftf_init(void)
 {
 	int ret = 0;
+
+	// To avoid kmalloc entirely, we enforce a maximum number of fuzz tests
+	// that can be defined inside the kernel.
+	size_t num_test_cases = __kftf_end - __kftf_start;
+	if (num_test_cases > KFTF_MAX_TEST_CASES)
+		return -EINVAL;
 
 	st.kftf_dir = debugfs_create_dir("kftf", NULL);
 	if (!st.kftf_dir) {
@@ -53,21 +72,40 @@ static int __init kftf_init(void)
 			goto cleanup_failure;
 		}
 
-		st.debugfs_state[i].fops = (struct file_operations){
-			.owner = THIS_MODULE,
-			.write = test->write_callback,
-		};
+		st.debugfs_state[i].input_dentry.fops =
+			(struct file_operations){
+				.owner = THIS_MODULE,
+				.write = test->write_input_cb,
+			};
 
-		st.debugfs_state[i].input_file =
-			debugfs_create_file("input", kftf_debug_fs_flags,
-					    st.debugfs_state[i].test_dir, NULL,
-					    &st.debugfs_state[i].fops);
-
-		if (!st.debugfs_state[i].input_file) {
+		st.debugfs_state[i].input_dentry.dentry = debugfs_create_file(
+			"input", kftf_flags_w, st.debugfs_state[i].test_dir,
+			NULL, &st.debugfs_state[i].input_dentry.fops);
+		if (!st.debugfs_state[i].input_dentry.dentry) {
 			ret = -ENOMEM;
 			goto cleanup_failure;
-		} else if (IS_ERR(st.debugfs_state[i].input_file)) {
-			ret = PTR_ERR(st.debugfs_state[i].input_file);
+		} else if (IS_ERR(st.debugfs_state[i].input_dentry.dentry)) {
+			ret = PTR_ERR(st.debugfs_state[i].input_dentry.dentry);
+			goto cleanup_failure;
+		}
+
+		st.debugfs_state[i].metadata_dentry.fops =
+			(struct file_operations){
+				.owner = THIS_MODULE,
+				.read = test->read_metadata_cb,
+			};
+
+		st.debugfs_state[i].metadata_dentry.dentry =
+			debugfs_create_file(
+				"metadata", kftf_flags_r,
+				st.debugfs_state[i].test_dir, NULL,
+				&st.debugfs_state[i].metadata_dentry.fops);
+		if (!st.debugfs_state[i].metadata_dentry.dentry) {
+			ret = -ENOMEM;
+			goto cleanup_failure;
+		} else if (IS_ERR(st.debugfs_state[i].metadata_dentry.dentry)) {
+			ret = PTR_ERR(
+				st.debugfs_state[i].metadata_dentry.dentry);
 			goto cleanup_failure;
 		}
 
