@@ -21,9 +21,8 @@ static void kftf_fuzzable(char first, char second, char third)
 			pr_info("second was b");
 			if (third == 'c') {
 				pr_info("third was c");
-				/* do some weird access */
-				char value = *(char *)&first + (first * 10 + 1);
-				pr_info("dumping ptr %c\b", value);
+				volatile char *ptr = (void *)0xBEEF;
+				pr_info("reading %p: 0x%x", ptr, *(uint *)ptr);
 			}
 		}
 	}
