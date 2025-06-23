@@ -25,9 +25,9 @@ static char kftf_input_buf[128];
  * Expected usage: 
  *
  * ```
- * FUZZ_TEST(func, func_arg_type)
- * ret = func(arg.arg1, arg.arg2, ..., arg.argn);
- * validate(ret);
+ * FUZZ_TEST(func, func_arg_type) {
+ *	ret = func(arg.arg1, arg.arg2, ..., arg.argn);
+ *	validate(ret);
  * }
  * ```
  *
@@ -42,6 +42,7 @@ static char kftf_input_buf[128];
 					      size_t len, loff_t *off);        \
 	static ssize_t _read_metadata_callback_##func(                         \
 		struct file *filp, char __user *buf, size_t len, loff_t *off); \
+	static void _fuzz_test_logic_##func(func_arg_type arg);                \
 	/* test case struct initialization */                                  \
 	const struct kftf_test_case __fuzz_test__##func                        \
 		__attribute__((__section__(".kftf"), __used__)) = {            \
@@ -76,7 +77,6 @@ static char kftf_input_buf[128];
 					      const char __user *buf,          \
 					      size_t len, loff_t *off)         \
 	{                                                                      \
-		pr_info("invoke %s", __FUNCTION__);                            \
 		if (len >= sizeof(kftf_input_buf))                             \
 			return -EINVAL;                                        \
 		if (simple_write_to_buffer((void *)kftf_input_buf,             \
@@ -87,6 +87,12 @@ static char kftf_input_buf[128];
 			pr_warn("incorrect data size\n");                      \
 			return -EINVAL;                                        \
 		}                                                              \
-		func_arg_type *arg = (void *)kftf_input_buf;
+		func_arg_type arg = *(func_arg_type *)kftf_input_buf;          \
+		/* call the user's logic on the provided arg. */               \
+		/* NOTE: define some success/failure return types? */          \
+		_fuzz_test_logic_##func(arg);                                  \
+		return len;                                                    \
+	}                                                                      \
+	static void _fuzz_test_logic_##func(func_arg_type arg)
 
 #endif /* KFTF_H */

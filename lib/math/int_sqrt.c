@@ -17,9 +17,9 @@ struct int_sqrt_arg {
 };
 
 FUZZ_TEST(int_sqrt, struct int_sqrt_arg)
-unsigned long res = int_sqrt(arg->x);
-pr_info("fuzz_arg.x = %lu, res = %lu", arg->x, res);
-return len;
+{
+	unsigned long res = int_sqrt(arg.x);
+	pr_info("fuzz_arg.x = %lu, res = %lu", arg.x, res);
 }
 
 /**
