@@ -54,7 +54,7 @@ static char kftf_input_buf[128];
 					   sizeof(kftf_input_buf) - 1, off, \
 					   buf, len) < 0)                   \
 			return -EFAULT;                                     \
-		if (len != sizeof(struct kftf_simple_arg)) {                \
+		if (len != sizeof(func_arg_type)) {                         \
 			pr_warn("incorrect data size\n");                   \
 			return -EINVAL;                                     \
 		}                                                           \
