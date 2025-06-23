@@ -17,11 +17,6 @@ struct kftf_test_case {
 };
 
 /**
- * Shared buffer used for copying data out of userspace
- */
-static char kftf_input_buf[128];
-
-/**
  * Expected usage: 
  *
  * ```
@@ -36,6 +31,10 @@ static char kftf_input_buf[128];
  * struct instances as input.
  */
 #define FUZZ_TEST(func, func_arg_type)                                         \
+	/* input buffer. Size 1 for now, but we may support batching  */       \
+	static func_arg_type input_buf_##func[2];                              \
+	/* guard the buffer as concurrent processes could race */              \
+	DEFINE_MUTEX(input_mutex_##func);                                      \
 	/* forward decls */                                                    \
 	static ssize_t _write_callback_##func(struct file *filp,               \
 					      const char __user *buf,          \
@@ -77,20 +76,30 @@ static char kftf_input_buf[128];
 					      const char __user *buf,          \
 					      size_t len, loff_t *off)         \
 	{                                                                      \
-		if (len >= sizeof(kftf_input_buf))                             \
-			return -EINVAL;                                        \
-		if (simple_write_to_buffer((void *)kftf_input_buf,             \
-					   sizeof(kftf_input_buf) - 1, off,    \
-					   buf, len) < 0)                      \
-			return -EFAULT;                                        \
-		if (len != sizeof(func_arg_type)) {                            \
-			pr_warn("incorrect data size\n");                      \
+		pr_info("invoke %s\n", __FUNCTION__);                          \
+		if (len >= sizeof(input_buf_##func)) {                         \
+			mutex_unlock(&input_mutex_##func);                     \
 			return -EINVAL;                                        \
 		}                                                              \
-		func_arg_type arg = *(func_arg_type *)kftf_input_buf;          \
+		if (simple_write_to_buffer((void *)input_buf_##func,           \
+					   sizeof(input_buf_##func) - 1, off,  \
+					   buf, len) < 0) {                    \
+			pr_info("unable to read from buffer!\n");              \
+			mutex_unlock(&input_mutex_##func);                     \
+			return -EFAULT;                                        \
+		}                                                              \
+		if (len != sizeof(func_arg_type)) {                            \
+			pr_info("incorrect data size\n");                      \
+			mutex_unlock(&input_mutex_##func);                     \
+			return -EINVAL;                                        \
+		}                                                              \
+		/* XXX: no batching support, so just take the only elem */     \
+		func_arg_type arg = input_buf_##func[0];                       \
 		/* call the user's logic on the provided arg. */               \
 		/* NOTE: define some success/failure return types? */          \
+		pr_info("invoking fuzz logic\n");                              \
 		_fuzz_test_logic_##func(arg);                                  \
+		mutex_unlock(&input_mutex_##func);                             \
 		return len;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##func(func_arg_type arg)
