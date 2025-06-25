@@ -1,17 +1,35 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Kernel Fuzz Testing Framework (KFTF) - Core Module
+ *
+ * This module is responsible for discovering and initializing all fuzz test
+ * cases defined using the FUZZ_TEST() macro. It creates a debugfs interface
+* under /sys/kernel/debug/kftf/ for userspace to interact with each test.
+*/
 #include <linux/debugfs.h>
 #include <linux/fs.h>
 #include <linux/kftf.h>
 #include <linux/printk.h>
 
-#include "kftf_tests.h"
-
 extern const struct kftf_test_case __kftf_start[];
 extern const struct kftf_test_case __kftf_end[];
 
+/*
+ * KFTF_MAX_TEST_CASES - the hardcoded maximum number of test cases.
+ *
+ * To avoid kmalloc in this module, we use a statically allocated array to hold
+ * the state for each test case. This defines the upper limit on the size of
+ * that array.
+ */
 #define KFTF_MAX_TEST_CASES 1024
 
 /**
- * defines a struct dentry with file-operations
+ * struct kftf_dentry - A container for a debugfs dentry and its fops.
+ * @dentry: Pointer to the created debugfs dentry.
+ * @fops: The file_operations struct associated with this dentry.
+ *
+ * This simplifies state management by keeping a file's dentry and its
+ * operations bundled together.
  */
 struct kftf_dentry {
 	struct dentry *dentry;
@@ -19,7 +37,13 @@ struct kftf_dentry {
 };
 
 /**
- * Wraps teh state of the created
+ * struct kftf_debugfs_state - Per-test-case debugfs state.
+ * @test_dir: The top-level debugfs directory for a single test case, e.g.,
+ * /sys/kernel/debug/kftf/<test-name>/.
+ * @input_dentry: The state for the "input" file, which is write-only.
+ * @metadata_dentry: The state for the "metadata" file, which is read-only.
+ *
+ * Wraps all debugfs components created for a single test case.
  */
 struct kftf_debugfs_state {
 	struct dentry *test_dir;
@@ -27,6 +51,12 @@ struct kftf_debugfs_state {
 	struct kftf_dentry metadata_dentry;
 };
 
+/**
+ * struct kftf_simple_fuzzer_state - Global state for the KFTF module.
+ * @kftf_dir: The root debugfs directory, /sys/kernel/debug/kftf/.
+ * @debugfs_state: A statically sized array holding the state for each
+ *	registered test case.
+ */
 struct kftf_simple_fuzzer_state {
 	struct file_operations fops;
 	struct dentry *kftf_dir;
@@ -34,12 +64,36 @@ struct kftf_simple_fuzzer_state {
 		debugfs_state[KFTF_MAX_TEST_CASES]; // FIXME: fine for WIP
 };
 
+/* Global static variable to hold all state for the module. */
 static struct kftf_simple_fuzzer_state st;
 
-/* XXX: Be careful of flags here. Should formally define what we want */
-const umode_t kftf_flags_w = 0666;
+/*
+ * Default file permissions for the debugfs entries.
+ * 0222: World-writable for the 'input' file.
+ * 0444: World-readable for the 'metadata' file.
+ *
+ * XXX: should formally define what the permissions should be on these files
+ */
+const umode_t kftf_flags_w = 0222;
 const umode_t kftf_flags_r = 0444;
 
+/**
+ * kftf_init - Initializes the debug filesystem for KFTF.
+ *
+ * This function is the entry point for the KFTF module, populating the debugfs
+ * that is used for IO interaction between the individual fuzzing drivers and
+ * a userspace fuzzing tool like syzkaller.
+ *
+ * Each registered test in the ".kftf" section gets its own subdirectory
+ * under "/sys/kernel/debug/kftf/<test-name>" with two files:
+ *	- input: write-only file to send input to the fuzz driver
+ *	- metadata: used to read the type name that the fuzz driver expects
+ *
+ * Returns:
+ * 0 on success.
+ * -EINVAL if the number of tests exceeds KFTF_MAX_TEST_CASES
+ * -ENODEV or other error codes if debugfs creation fails.
+ */
 static int __init kftf_init(void)
 {
 	const struct kftf_test_case *test;
@@ -47,14 +101,11 @@ static int __init kftf_init(void)
 	int i = 0;
 	size_t num_test_cases;
 
-	/* 
-	 * To avoid kmalloc entirely, we enforce a maximum number of fuzz tests
-	 * that can be defined inside the kernel. 
-	 */
 	num_test_cases = __kftf_end - __kftf_start;
 	if (num_test_cases > KFTF_MAX_TEST_CASES)
 		return -EINVAL;
 
+	/* create the main "kftf" directory in `/sys/kernel/debug` */
 	st.kftf_dir = debugfs_create_dir("kftf", NULL);
 	if (!st.kftf_dir) {
 		pr_warn("kftf: could not create debugfs");
@@ -66,7 +117,9 @@ static int __init kftf_init(void)
 		return PTR_ERR(st.kftf_dir);
 	}
 
+	/* iterate over all discovered test cases and set up debugfs entries */
 	for (test = __kftf_start; test < __kftf_end; test++, i++) {
+		/* create a directory for the discovered test case */
 		st.debugfs_state[i].test_dir =
 			debugfs_create_dir(test->name, st.kftf_dir);
 
@@ -126,8 +179,12 @@ cleanup_failure:
 	return ret;
 }
 
+/**
+ * kftf_exit - Cleans up the module.
+ */
 static void __exit kftf_exit(void)
 {
+	pr_info("kftf: shutting down\n");
 	if (!st.kftf_dir)
 		return;
 
