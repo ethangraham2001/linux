@@ -14,15 +14,6 @@
 extern const struct kftf_test_case __kftf_start[];
 extern const struct kftf_test_case __kftf_end[];
 
-/*
- * KFTF_MAX_TEST_CASES - the hardcoded maximum number of test cases.
- *
- * To avoid kmalloc in this module, we use a statically allocated array to hold
- * the state for each test case. This defines the upper limit on the size of
- * that array.
- */
-#define KFTF_MAX_TEST_CASES 1024
-
 /**
  * struct kftf_dentry - A container for a debugfs dentry and its fops.
  * @dentry: Pointer to the created debugfs dentry.
@@ -60,8 +51,7 @@ struct kftf_debugfs_state {
 struct kftf_simple_fuzzer_state {
 	struct file_operations fops;
 	struct dentry *kftf_dir;
-	struct kftf_debugfs_state
-		debugfs_state[KFTF_MAX_TEST_CASES]; // FIXME: fine for WIP
+	struct kftf_debugfs_state *debugfs_state;
 };
 
 /* Global static variable to hold all state for the module. */
@@ -102,8 +92,11 @@ static int __init kftf_init(void)
 	size_t num_test_cases;
 
 	num_test_cases = __kftf_end - __kftf_start;
-	if (num_test_cases > KFTF_MAX_TEST_CASES)
-		return -EINVAL;
+
+	st.debugfs_state = kmalloc(
+		num_test_cases * sizeof(struct kftf_debugfs_state), GFP_KERNEL);
+	if (!st.debugfs_state)
+		return -ENOMEM;
 
 	/* create the main "kftf" directory in `/sys/kernel/debug` */
 	st.kftf_dir = debugfs_create_dir("kftf", NULL);
