@@ -67,67 +67,64 @@ struct kftf_test_case {
  *	validate(ret);
  * }
  */
-#define FUZZ_TEST(func, func_arg_type)                                           \
-	/* The input buffer holds data written from userspace. Size 2 to       \
-	 * support batching in the future, but currently only the first  \
-	 * element is used. \
-	 */ \
-	static func_arg_type input_buf_##func[2];                                \
-	/* guard the buffer as concurrent processes could race */                \
-	DEFINE_MUTEX(input_mutex_##func);                                        \
-	/* forward decls */                                                      \
-	static ssize_t _write_callback_##func(struct file *filp,                 \
-					      const char __user *buf,            \
-					      size_t len, loff_t *off);          \
-	static ssize_t _read_metadata_callback_##func(                           \
-		struct file *filp, char __user *buf, size_t len, loff_t *off);   \
-	static void _fuzz_test_logic_##func(func_arg_type arg);                  \
-	/* test case struct initialization */                                    \
-	const struct kftf_test_case __fuzz_test__##func                          \
-		__attribute__((__section__(".kftf"), __used__)) = {              \
-			.name = #func,                                           \
-			.arg_type_name = #func_arg_type,                         \
-			.write_input_cb = _write_callback_##func,                \
-			.read_metadata_cb = _read_metadata_callback_##func       \
-		};                                                               \
-	/* callback that simply returns the type name to the user */             \
-	static ssize_t _read_metadata_callback_##func(                           \
-		struct file *filp, char __user *buf, size_t len, loff_t *off)    \
-	{                                                                        \
-		const char *message = __fuzz_test__##func.arg_type_name;         \
-		int message_len = strlen(message);                               \
-		return simple_read_from_buffer(buf, len, off, message,           \
-					       message_len);                     \
-	}                                                                        \
-	/* user-defined write callback */                                        \
-	static ssize_t _write_callback_##func(struct file *filp,                 \
-					      const char __user *buf,            \
-					      size_t len, loff_t *off)           \
-	{                                                                        \
-		if (len >= sizeof(input_buf_##func)) {                           \
-			mutex_unlock(&input_mutex_##func);                       \
-			return -EINVAL;                                          \
-		}                                                                \
-		if (simple_write_to_buffer((void *)input_buf_##func,             \
-					   sizeof(input_buf_##func) - 1, off,    \
-					   buf, len) < 0) {                      \
-			pr_warn("unable to read from buffer!\n");                \
-			mutex_unlock(&input_mutex_##func);                       \
-			return -EFAULT;                                          \
-		}                                                                \
-		if (len != sizeof(func_arg_type)) {                              \
-			pr_warn("incorrect data size\n");                        \
-			mutex_unlock(&input_mutex_##func);                       \
-			return -EINVAL;                                          \
-		}                                                                \
-		/* XXX: no batching support, so just take the only elem */       \
-		func_arg_type arg = input_buf_##func[0];                         \
-		/* call the user's logic on the provided arg. */                 \
-		/* NOTE: define some success/failure return types? */            \
-		_fuzz_test_logic_##func(arg);                                    \
-		mutex_unlock(&input_mutex_##func);                               \
-		return len;                                                      \
-	}                                                                        \
+#define FUZZ_TEST(func, func_arg_type)                                         \
+	/* forward decls */                                                    \
+	static ssize_t _write_callback_##func(struct file *filp,               \
+					      const char __user *buf,          \
+					      size_t len, loff_t *off);        \
+	static ssize_t _read_metadata_callback_##func(                         \
+		struct file *filp, char __user *buf, size_t len, loff_t *off); \
+	static void _fuzz_test_logic_##func(func_arg_type arg);                \
+	/* test case struct initialization */                                  \
+	const struct kftf_test_case __fuzz_test__##func                        \
+		__attribute__((__section__(".kftf"), __used__)) = {            \
+			.name = #func,                                         \
+			.arg_type_name = #func_arg_type,                       \
+			.write_input_cb = _write_callback_##func,              \
+			.read_metadata_cb = _read_metadata_callback_##func     \
+		};                                                             \
+	/* callback that simply returns the type name to the user */           \
+	static ssize_t _read_metadata_callback_##func(                         \
+		struct file *filp, char __user *buf, size_t len, loff_t *off)  \
+	{                                                                      \
+		const char *message = __fuzz_test__##func.arg_type_name;       \
+		int message_len = strlen(message);                             \
+		return simple_read_from_buffer(buf, len, off, message,         \
+					       message_len);                   \
+	}                                                                      \
+	/* user-defined write callback */                                      \
+	static ssize_t _write_callback_##func(struct file *filp,               \
+					      const char __user *buf,          \
+					      size_t len, loff_t *off)         \
+	{                                                                      \
+		func_arg_type *input_buf =                                     \
+			kmalloc(sizeof(func_arg_type), GFP_KERNEL);            \
+		if (!input_buf)                                                \
+			return -ENOMEM;                                        \
+		if (len >= sizeof(*input_buf)) {                               \
+			kfree(input_buf);                                      \
+			return -EINVAL;                                        \
+		}                                                              \
+		if (simple_write_to_buffer((void *)input_buf,                  \
+					   sizeof(*input_buf) - 1, off, buf,   \
+					   len) < 0) {                         \
+			pr_warn("unable to read from buffer!\n");              \
+			kfree(input_buf);                                      \
+			return -EFAULT;                                        \
+		}                                                              \
+		if (len != sizeof(func_arg_type)) {                            \
+			pr_warn("incorrect data size\n");                      \
+			kfree(input_buf);                                      \
+			return -EINVAL;                                        \
+		}                                                              \
+		/* XXX: no batching support yet */                             \
+		func_arg_type arg = *input_buf;                                \
+		/* call the user's logic on the provided arg. */               \
+		/* NOTE: define some success/failure return types? */          \
+		_fuzz_test_logic_##func(arg);                                  \
+		kfree(input_buf);                                              \
+		return len;                                                    \
+	}                                                                      \
 	static void _fuzz_test_logic_##func(func_arg_type arg)
 
 #endif /* KFTF_H */
