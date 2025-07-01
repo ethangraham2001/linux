@@ -38,8 +38,7 @@ static int write_input_cb_common(struct file *filp, const char __user *buf,
 	if (len != arg_size) {
 		return -EINVAL;
 	}
-	if (simple_write_to_buffer(arg, sizeof(arg_size) - 1, off, buf, len) <
-	    0) {
+	if (simple_write_to_buffer((void *)arg, arg_size, off, buf, len) < 0) {
 		return -EFAULT;
 	}
 	return 0;
