@@ -31,6 +31,20 @@ struct kftf_test_case {
 				    loff_t *);
 };
 
+static int write_input_cb_common(struct file *filp, const char __user *buf,
+				 size_t len, loff_t *off, void *arg,
+				 size_t arg_size)
+{
+	if (len != arg_size) {
+		return -EINVAL;
+	}
+	if (simple_write_to_buffer(arg, sizeof(arg_size) - 1, off, buf, len) <
+	    0) {
+		return -EFAULT;
+	}
+	return 0;
+}
+
 /**
  * FUZZ_TEST - defines a fuzz test case for a function.
  * @func: the function to be fuzzed. This is used to name the test case and
@@ -97,32 +111,17 @@ struct kftf_test_case {
 					      const char __user *buf,          \
 					      size_t len, loff_t *off)         \
 	{                                                                      \
-		func_arg_type *input_buf =                                     \
-			kmalloc(sizeof(func_arg_type), GFP_KERNEL);            \
-		if (!input_buf)                                                \
-			return -ENOMEM;                                        \
-		if (len >= sizeof(*input_buf)) {                               \
-			kfree(input_buf);                                      \
-			return -EINVAL;                                        \
+		int err;                                                       \
+		func_arg_type arg;                                             \
+		err = write_input_cb_common(filp, buf, len, off, &arg,         \
+					    sizeof(arg));                      \
+		if (err != 0) {                                                \
+			return err;                                            \
 		}                                                              \
-		if (simple_write_to_buffer((void *)input_buf,                  \
-					   sizeof(*input_buf) - 1, off, buf,   \
-					   len) < 0) {                         \
-			pr_warn("unable to read from buffer!\n");              \
-			kfree(input_buf);                                      \
-			return -EFAULT;                                        \
-		}                                                              \
-		if (len != sizeof(func_arg_type)) {                            \
-			pr_warn("incorrect data size\n");                      \
-			kfree(input_buf);                                      \
-			return -EINVAL;                                        \
-		}                                                              \
-		/* XXX: no batching support yet */                             \
-		func_arg_type arg = *input_buf;                                \
 		/* call the user's logic on the provided arg. */               \
 		/* NOTE: define some success/failure return types? */          \
+		pr_info("invoking fuzz logic for %s\n", #func);                \
 		_fuzz_test_logic_##func(arg);                                  \
-		kfree(input_buf);                                              \
 		return len;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##func(func_arg_type arg)
