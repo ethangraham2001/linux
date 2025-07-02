@@ -9,6 +9,7 @@
 #include <linux/export.h>
 #include <linux/oid_registry.h>
 #include <linux/kernel.h>
+#include <linux/kftf.h>
 #include <linux/errno.h>
 #include <linux/bug.h>
 #include <linux/asn1.h>
@@ -85,8 +86,7 @@ enum OID look_up_OID(const void *data, size_t datasize)
 			}
 		}
 		return oid;
-	next:
-		;
+next:;
 	}
 
 	return OID__NR;
@@ -172,4 +172,40 @@ bad:
 	snprintf(buffer, bufsize, "(bad)");
 	return -EBADMSG;
 }
+
+struct sprint_oid_arg {
+	const char *data;
+	size_t datasize;
+	size_t bufsize;
+};
+
+FUZZ_TEST(test_sprint_oid, struct sprint_oid_arg)
+{
+	// ignore null pointers
+	KFTF_EXPECT_NOT_NULL(sprint_oid_arg, data);
+	KFTF_EXPECT_IN_RANGE(sprint_oid_arg, bufsize, 16, PAGE_SIZE);
+
+	char *kernel_data = kmalloc(arg.datasize, GFP_KERNEL);
+	if (!kernel_data) {
+		pr_warn("bug: unable to kmalloc a buffer for kernel data\n");
+		return;
+	}
+	if (copy_from_user(kernel_data, arg.data, arg.datasize)) {
+		pr_warn("bug: unable to copy data from user to kernel\n");
+		kfree(kernel_data);
+		return;
+	}
+	char *buffer = kmalloc(arg.bufsize, GFP_KERNEL);
+	if (!buffer) {
+		pr_warn("bug: unable to kmalloc a buffer\n");
+		kfree(kernel_data);
+		return;
+	}
+
+	sprint_oid((const char *)kernel_data, arg.datasize, buffer,
+		   arg.bufsize);
+	kfree(buffer);
+	kfree(kernel_data);
+}
+
 EXPORT_SYMBOL_GPL(sprint_oid);
