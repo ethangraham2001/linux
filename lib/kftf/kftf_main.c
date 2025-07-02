@@ -10,6 +10,7 @@
 #include <linux/fs.h>
 #include <linux/kftf.h>
 #include <linux/printk.h>
+#include "kftf_tests.h"
 
 #include "kftf_tests.h"
 
