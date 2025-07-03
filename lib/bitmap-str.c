@@ -7,6 +7,7 @@
 #include <linux/export.h>
 #include <linux/hex.h>
 #include <linux/kernel.h>
+#include <linux/kftf.h>
 #include <linux/mm.h>
 #include <linux/string.h>
 
@@ -399,6 +400,37 @@ int bitmap_parselist(const char *buf, unsigned long *maskp, int nmaskbits)
 }
 EXPORT_SYMBOL(bitmap_parselist);
 
+struct bitmap_parselist_arg {
+	const char *buf;
+	int nmaskbits;
+};
+
+FUZZ_TEST(test_bitmap_parselist, struct bitmap_parselist_arg)
+{
+	unsigned long maskp_out;
+	size_t buflen;
+	char *kernel_buf;
+	size_t count = 2 * PAGE_SIZE;
+
+	if (!arg.buf)
+		return;
+
+	buflen = strnlen_user(arg.buf, count);
+	if (buflen > count)
+		return;
+
+	kernel_buf = strndup_user(arg.buf, count);
+	if (!kernel_buf) {
+		pr_warn("test_bitmap_parselist: unable to allocate kernel buffer");
+		return;
+	}
+
+	pr_info("test_bitmap_parselist: buflen = %zu, buf = %s, nmaskbits = %d\n",
+		buflen, kernel_buf, arg.nmaskbits);
+	bitmap_parselist(kernel_buf, &maskp_out, arg.nmaskbits);
+
+	kfree(kernel_buf);
+}
 
 /**
  * bitmap_parselist_user() - convert user buffer's list format ASCII
