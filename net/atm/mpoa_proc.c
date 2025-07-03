@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/ktime.h>
+#include <linux/kftf.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/atmmpc.h>
@@ -279,6 +280,37 @@ static int parse_qos(const char *buff)
 
 	atm_mpoa_add_qos(ipaddr, &qos);
 	return 1;
+}
+
+struct parse_qos_arg {
+	const char *buff;
+};
+
+FUZZ_TEST(test_parse_qos, struct parse_qos_arg)
+{
+	size_t bufflen;
+	char *kernel_buff;
+	int ret;
+	size_t count = 2 * PAGE_SIZE;
+
+	if (!arg.buff)
+		return;
+
+	bufflen = strnlen_user(arg.buff, count);
+	if (bufflen > count)
+		return;
+
+	kernel_buff = strndup_user(arg.buff, bufflen);
+	if (!kernel_buff ||
+	    kernel_buff == ZERO_SIZE_PTR /* be careful here */) {
+		pr_warn("failed to allocate kernel buffer\n");
+		return;
+	}
+
+	pr_info("test_parse_qos: bufflen = %zu\n", bufflen);
+	ret = parse_qos(kernel_buff);
+
+	kfree(kernel_buff);
 }
 
 /*
