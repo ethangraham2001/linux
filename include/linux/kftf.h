@@ -31,9 +31,10 @@ struct kftf_test_case {
 				    loff_t *);
 };
 
-static int write_input_cb_common(struct file *filp, const char __user *buf,
-				 size_t len, loff_t *off, void *arg,
-				 size_t arg_size)
+// XXX: why can't we use without the attribute unused anymore??
+__attribute__((unused)) static int
+write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
+		      loff_t *off, void *arg, size_t arg_size)
 {
 	if (len != arg_size) {
 		return -EINVAL;
@@ -124,5 +125,63 @@ static int write_input_cb_common(struct file *filp, const char __user *buf,
 		return len;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##func(func_arg_type arg)
+
+/**
+ * struct kftf_constraint_type defines a type of constraint. The fuzzing driver
+ * should be aware of these.
+ */
+enum kftf_constraint_type : uint8_t {
+	EXPECT_NE = 0,
+	EXPECT_LE,
+	EXPECT_GT,
+};
+
+struct kftf_constraint {
+	const char *input_type;
+	const char *field_name;
+	uintptr_t value;
+	enum kftf_constraint_type type;
+};
+
+/**
+ * __KFTF_DEFINE_CONSTRAINT - defines a fuzz test constraint linked to a given
+ * argument type belonging to a fuzz test. See FUZZ_TEST above.
+ *
+ * @arg_type: the type of argument (a struct) without the leading "struct" in
+ *	its name, which will be prepended.
+ * @field: the field on which the constraint is defined.
+ * @val: used for comparison constraints such as KFTF_EXPECT_NE
+ * @tpe: the type of constaint that this defines
+ *
+ * This macro is intended for internal use. A user should opt for 
+ * KFTF_EXPECT_* instead when defining fuzz test constraints.
+ */
+#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val, tpe)             \
+	static struct kftf_constraint __constraint_##arg_type##_##field \
+		__attribute__((__section__(".kftf.constraint"))) = {    \
+			.input_type = "struct " #arg_type,              \
+			.field_name = #field,                           \
+			.value = (uintptr_t)val,                        \
+			.type = tpe,                                    \
+		};                                                      \
+	(void)__constraint_##arg_type##_##field;
+
+#define KFTF_EXPECT_NE(arg_type, field, val) \
+	if (arg.field == val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, EXPECT_NE)
+
+#define KFTF_EXPECT_LE(arg_type, field, val) \
+	if (arg.field >= val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, EXPECT_LE);
+
+#define KFTF_EXPECT_GT(arg_type, field, val) \
+	if (arg.field > val)                 \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, EXPECT_GT);
+
+#define KFTF_EXPECT_NOT_NULL(arg_type, field) \
+	KFTF_EXPECT_NE(arg_type, field, 0x0)
 
 #endif /* KFTF_H */
