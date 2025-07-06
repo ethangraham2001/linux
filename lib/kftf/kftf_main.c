@@ -11,6 +11,8 @@
 #include <linux/kftf.h>
 #include <linux/printk.h>
 
+#include "kftf_tests.h"
+
 extern const struct kftf_test_case __kftf_test_case_start[];
 extern const struct kftf_test_case __kftf_test_case_end[];
 extern const struct kftf_constraint __kftf_constraint_start[];
@@ -169,13 +171,17 @@ static int __init kftf_init(void)
 		pr_info("kftf: registered %s\n", test->name);
 	}
 
-	pr_info("kftf dumping constraints...\n");
+	// TODO: make debugfs entries for these constraints
+	size_t num_constraints = 0;
 	for (constraint = __kftf_constraint_start;
 	     constraint < __kftf_constraint_end; constraint++) {
+		pr_info("kftf: addr = 0x%lX\n", (size_t)constraint);
 		pr_info("input type: %s\n", constraint->input_type);
 		pr_info("field name: %s\n", constraint->field_name);
-		pr_info("value:	     %lx\n", constraint->value);
+		pr_info("value1:     %lx\n", constraint->value1);
+		pr_info("value2:     %lx\n", constraint->value2);
 		pr_info("type:       %d\n", constraint->type);
+		num_constraints++;
 	}
 
 	return 0;

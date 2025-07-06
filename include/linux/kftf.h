@@ -91,7 +91,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 	static void _fuzz_test_logic_##func(func_arg_type arg);                \
 	/* test case struct initialization */                                  \
 	const struct kftf_test_case __fuzz_test__##func                        \
-		__attribute__((__section__(".kftf"), __used__)) = {            \
+		__attribute__((__section__(".kftf_test"), __used__)) = {       \
 			.name = #func,                                         \
 			.arg_type_name = #func_arg_type,                       \
 			.write_input_cb = _write_callback_##func,              \
@@ -144,13 +144,32 @@ enum kftf_constraint_type : uint8_t {
 	EXPECT_IN_RANGE,
 };
 
+/**
+ * ktft_constraint defines a domain constraint for a struct variable that is
+ * taken as input for a FUZZ_TEST
+ *
+ * @input_type: the name of the input (a struct name)
+ * @field_name: the name of the field that this domain constraint applies to
+ * @value1: used in all comparisons
+ * @value2: only used in comparisons that require multiple values, e.g. range
+ *	constraints
+ * @type: the type of the constraint, enumerated above
+ *
+ * Note: if this struct is not a multiple of 64 bytes, everything breaks and
+ * we get corrupted data and occasional kernel panics. To avoid this happening,
+ * we enforce 64 Byte alignment and statically assert that this struct has size
+ * 64 Bytes.
+ */
 struct kftf_constraint {
 	const char *input_type;
 	const char *field_name;
 	uintptr_t value1;
 	uintptr_t value2;
 	enum kftf_constraint_type type;
-};
+} __attribute__((aligned(64)));
+
+static_assert(sizeof(struct kftf_constraint) == 64,
+	      "struct kftf_constraint should have size 64");
 
 /**
  * __KFTF_DEFINE_CONSTRAINT - defines a fuzz test constraint linked to a given
@@ -165,16 +184,15 @@ struct kftf_constraint {
  * This macro is intended for internal use. A user should opt for 
  * KFTF_EXPECT_* instead when defining fuzz test constraints.
  */
-#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)      \
-	static struct kftf_constraint __constraint_##arg_type##_##field \
-		__attribute__((__section__(".kftf.constraint"))) = {    \
-			.input_type = "struct " #arg_type,              \
-			.field_name = #field,                           \
-			.value1 = (uintptr_t)val1,                      \
-			.value2 = (uintptr_t)val2,                      \
-			.type = tpe,                                    \
-		};                                                      \
-	(void)__constraint_##arg_type##_##field;
+#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)             \
+	static struct kftf_constraint __constraint_##arg_type##_##field        \
+		__attribute__((__section__(".kftf_constraint"), __used__)) = { \
+			.input_type = "struct " #arg_type,                     \
+			.field_name = #field,                                  \
+			.value1 = (uintptr_t)val1,                             \
+			.value2 = (uintptr_t)val2,                             \
+			.type = tpe,                                           \
+		};
 
 #define KFTF_EXPECT_EQ(arg_type, field, val) \
 	if (arg.field != val)                \
@@ -189,12 +207,12 @@ struct kftf_constraint {
 #define KFTF_EXPECT_LE(arg_type, field, val) \
 	if (arg.field > val)                 \
 		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE);
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE)
 
 #define KFTF_EXPECT_GT(arg_type, field, val) \
 	if (arg.field <= val)                \
 		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT);
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
 
 #define KFTF_EXPECT_NOT_NULL(arg_type, field) \
 	KFTF_EXPECT_NE(arg_type, field, 0x0)

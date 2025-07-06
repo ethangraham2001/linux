@@ -116,11 +116,11 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 #define KFTF_TABLE							\
 	. = ALIGN(0X100);						\
 	__kftf_test_case_start = .;					\
-	KEEP(*(.kftf));	/* keep everything referencing section */	\
+	KEEP(*(.kftf_test));						\
 	__kftf_test_case_end = .;					\
 	. = ALIGN(0x100);						\
 	__kftf_constraint_start = .;					\
-	KEEP(*(.kftf.constraint));					\
+	KEEP(*(.kftf_constraint));					\
 	__kftf_constraint_end = .;					\
 
 PHDRS {
