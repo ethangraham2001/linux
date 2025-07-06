@@ -127,19 +127,28 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 	static void _fuzz_test_logic_##func(func_arg_type arg)
 
 /**
+ * Reports a bug with a predictable prefix so that it can be parsed by a
+ * fuzzing driver.
+ */
+#define KFTF_REPORT_BUG(msg, fmt) pr_warn("bug: " #msg, fmt)
+
+/**
  * struct kftf_constraint_type defines a type of constraint. The fuzzing driver
  * should be aware of these.
  */
 enum kftf_constraint_type : uint8_t {
-	EXPECT_NE = 0,
+	EXPECT_EQ = 0,
+	EXPECT_NE,
 	EXPECT_LE,
 	EXPECT_GT,
+	EXPECT_IN_RANGE,
 };
 
 struct kftf_constraint {
 	const char *input_type;
 	const char *field_name;
-	uintptr_t value;
+	uintptr_t value1;
+	uintptr_t value2;
 	enum kftf_constraint_type type;
 };
 
@@ -156,32 +165,44 @@ struct kftf_constraint {
  * This macro is intended for internal use. A user should opt for 
  * KFTF_EXPECT_* instead when defining fuzz test constraints.
  */
-#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val, tpe)             \
+#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)      \
 	static struct kftf_constraint __constraint_##arg_type##_##field \
 		__attribute__((__section__(".kftf.constraint"))) = {    \
 			.input_type = "struct " #arg_type,              \
 			.field_name = #field,                           \
-			.value = (uintptr_t)val,                        \
+			.value1 = (uintptr_t)val1,                      \
+			.value2 = (uintptr_t)val2,                      \
 			.type = tpe,                                    \
 		};                                                      \
 	(void)__constraint_##arg_type##_##field;
 
+#define KFTF_EXPECT_EQ(arg_type, field, val) \
+	if (arg.field != val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ)
+
 #define KFTF_EXPECT_NE(arg_type, field, val) \
 	if (arg.field == val)                \
 		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, EXPECT_NE)
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
 
 #define KFTF_EXPECT_LE(arg_type, field, val) \
-	if (arg.field >= val)                \
-		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, EXPECT_LE);
-
-#define KFTF_EXPECT_GT(arg_type, field, val) \
 	if (arg.field > val)                 \
 		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, EXPECT_GT);
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE);
+
+#define KFTF_EXPECT_GT(arg_type, field, val) \
+	if (arg.field <= val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT);
 
 #define KFTF_EXPECT_NOT_NULL(arg_type, field) \
 	KFTF_EXPECT_NE(arg_type, field, 0x0)
+
+#define KFTF_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)     \
+	if (arg.field < lower_bound || arg.field > upper_bound)             \
+		return;                                                     \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
+				 EXPECT_IN_RANGE)
 
 #endif /* KFTF_H */
