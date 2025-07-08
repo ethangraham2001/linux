@@ -10,9 +10,6 @@
 #include <linux/fs.h>
 #include <linux/kftf.h>
 #include <linux/printk.h>
-#include "kftf_tests.h"
-
-#include "kftf_tests.h"
 
 extern const struct kftf_test_case __kftf_test_case_start[];
 extern const struct kftf_test_case __kftf_test_case_end[];
