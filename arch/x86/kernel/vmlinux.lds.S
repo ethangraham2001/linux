@@ -114,14 +114,18 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 #endif
 
 #define KFTF_TABLE							\
-	. = ALIGN(0X100);						\
+	. = ALIGN(PAGE_SIZE);						\
 	__kftf_test_case_start = .;					\
 	KEEP(*(.kftf_test));						\
 	__kftf_test_case_end = .;					\
-	. = ALIGN(0x100);						\
+	. = ALIGN(PAGE_SIZE);						\
 	__kftf_constraint_start = .;					\
 	KEEP(*(.kftf_constraint));					\
 	__kftf_constraint_end = .;					\
+	. = ALIGN(PAGE_SIZE);						\
+	__kftf_annotation_start = .;					\
+	KEEP(*(.kftf_annotation));					\
+	__kftf_annotation_end = .;					\
 
 PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */

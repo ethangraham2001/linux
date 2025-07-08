@@ -223,4 +223,37 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
 				 EXPECT_IN_RANGE)
 
+enum kftf_annotation_attribute : uint8_t {
+	ATTRIBUTE_LEN = 0,
+	ATTRIBUTE_STRING,
+};
+
+struct kftf_annotation {
+	const char *input_type;
+	const char *field_name;
+	const char *linked_field_name;
+	enum kftf_annotation_attribute attrib;
+} __attribute__((aligned(32)));
+
+#define __KFTF_ANNOTATE(arg_type, field, linked_field, attribute)              \
+	static struct kftf_annotation __annotation_##arg_type##_##field        \
+		__attribute__((__section__(".kftf_annotation"), __used__)) = { \
+			.input_type = "struct " #arg_type,                     \
+			.field_name = #field,                                  \
+			.linked_field_name = #linked_field,                    \
+			.attrib = attribute,                                   \
+		};
+
+/**
+ * Annotates arg_type.field as a string
+ */
+#define KFTF_ANNOTATE_STRING(arg_type, field) \
+	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_STRING)
+
+/**
+ * Annotates arg_type.field as the length of arg_type.linked_field
+ */
+#define KFTF_ANNOTATE_LEN(arg_type, field, linked_field) \
+	__KFTF_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
+
 #endif /* KFTF_H */
