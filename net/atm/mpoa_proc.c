@@ -292,9 +292,7 @@ FUZZ_TEST(test_parse_qos, struct parse_qos_arg)
 	char *kernel_buff;
 	int ret;
 	size_t count = 2 * PAGE_SIZE;
-
-	if (!arg.buff)
-		return;
+	KFTF_EXPECT_NOT_NULL(parse_qos_arg, buff);
 
 	bufflen = strnlen_user(arg.buff, count);
 	if (bufflen > count)

@@ -412,8 +412,7 @@ FUZZ_TEST(test_bitmap_parselist, struct bitmap_parselist_arg)
 	char *kernel_buf;
 	size_t count = 2 * PAGE_SIZE;
 
-	if (!arg.buf)
-		return;
+	KFTF_EXPECT_NOT_NULL(bitmap_parselist_arg, buf);
 
 	buflen = strnlen_user(arg.buf, count);
 	if (buflen > count)
