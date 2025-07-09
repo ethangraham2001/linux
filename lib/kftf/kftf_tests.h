@@ -33,7 +33,7 @@ FUZZ_TEST(kftf_fuzzable, struct kftf_simple_arg)
 	KFTF_EXPECT_NOT_NULL(kftf_simple_arg, first);
 	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, second, 'a', 'z');
 	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, third, 'a', 'z');
-	kftf_fuzzable(arg.first, arg.second, arg.third);
+	kftf_fuzzable(arg->first, arg->second, arg->third);
 }
 
 struct my_fun_func_arg {
@@ -64,17 +64,17 @@ FUZZ_TEST(my_memncpy, struct my_fun_func_arg)
 	KFTF_EXPECT_NOT_NULL(my_fun_func_arg, string);
 	KFTF_EXPECT_NOT_NULL(my_fun_func_arg, buffer);
 
-	kernel_string = strndup_user(arg.string, PAGE_SIZE);
+	kernel_string = strndup_user(arg->string, PAGE_SIZE);
 	if (!kernel_string || IS_ERR(kernel_string))
 		return;
 
-	kernel_buffer = memdup_user(arg.buffer, arg.buffer_size);
+	kernel_buffer = memdup_user(arg->buffer, arg->buffer_size);
 	if (!kernel_buffer || IS_ERR(kernel_buffer)) {
 		kfree(kernel_string);
 		return;
 	}
 
-	my_fun_func(kernel_string, kernel_buffer, arg.buffer_size);
+	my_fun_func(kernel_string, kernel_buffer, arg->buffer_size);
 	kfree(kernel_string);
 	kfree(kernel_buffer);
 }
