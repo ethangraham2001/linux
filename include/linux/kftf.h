@@ -7,6 +7,9 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFTF)");
 
+/* forward decl */
+static void *kftf_parse_input(void *input, size_t input_size);
+
 /**
  * struct kftf_test case defines a single fuzz test case. These should not
  * be created manually. Instead the user should use the FUZZ_TEST macro defined
@@ -88,7 +91,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 					      size_t len, loff_t *off);        \
 	static ssize_t _read_metadata_callback_##func(                         \
 		struct file *filp, char __user *buf, size_t len, loff_t *off); \
-	static void _fuzz_test_logic_##func(func_arg_type arg);                \
+	static void _fuzz_test_logic_##func(func_arg_type *arg);               \
 	/* test case struct initialization */                                  \
 	const struct kftf_test_case __fuzz_test__##func                        \
 		__attribute__((__section__(".kftf_test"), __used__)) = {       \
@@ -111,20 +114,33 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 					      const char __user *buf,          \
 					      size_t len, loff_t *off)         \
 	{                                                                      \
+		pr_info("[ENTER] %s\n", __FUNCTION__);                         \
 		int err;                                                       \
-		func_arg_type arg;                                             \
-		err = write_input_cb_common(filp, buf, len, off, &arg,         \
-					    sizeof(arg));                      \
+		void *buffer = kmalloc(len, GFP_KERNEL);                       \
+		if (!buffer || IS_ERR(buffer))                                 \
+			return PTR_ERR(buffer);                                \
+		err = write_input_cb_common(filp, buf, len, off, buffer,       \
+					    sizeof(buffer));                   \
 		if (err != 0) {                                                \
+			pr_info("%s: failed to read data, len = %zu\n",        \
+				__FUNCTION__, len);                            \
+			kfree(buffer);                                         \
 			return err;                                            \
 		}                                                              \
+		void *payload = kftf_parse_input(buffer, len);                 \
+		if (!payload) {                                                \
+			kfree(buffer);                                         \
+			return -1;                                             \
+		}                                                              \
+		func_arg_type *arg = payload;                                  \
 		/* call the user's logic on the provided arg. */               \
 		/* NOTE: define some success/failure return types? */          \
 		pr_info("invoking fuzz logic for %s\n", #func);                \
 		_fuzz_test_logic_##func(arg);                                  \
+		kfree(buffer);                                                 \
 		return len;                                                    \
 	}                                                                      \
-	static void _fuzz_test_logic_##func(func_arg_type arg)
+	static void _fuzz_test_logic_##func(func_arg_type *arg)
 
 /**
  * Reports a bug with a predictable prefix so that it can be parsed by a
@@ -195,22 +211,22 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 		};
 
 #define KFTF_EXPECT_EQ(arg_type, field, val) \
-	if (arg.field != val)                \
+	if (arg->field != val)               \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ)
 
 #define KFTF_EXPECT_NE(arg_type, field, val) \
-	if (arg.field == val)                \
+	if (arg->field == val)               \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
 
 #define KFTF_EXPECT_LE(arg_type, field, val) \
-	if (arg.field > val)                 \
+	if (arg->field > val)                \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE)
 
 #define KFTF_EXPECT_GT(arg_type, field, val) \
-	if (arg.field <= val)                \
+	if (arg->field <= val)               \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
 
@@ -218,7 +234,7 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 	KFTF_EXPECT_NE(arg_type, field, 0x0)
 
 #define KFTF_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)     \
-	if (arg.field < lower_bound || arg.field > upper_bound)             \
+	if (arg->field < lower_bound || arg->field > upper_bound)           \
 		return;                                                     \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
 				 EXPECT_IN_RANGE)
@@ -265,5 +281,52 @@ struct kftf_annotation {
  */
 #define KFTF_ANNOTATE_LEN(arg_type, field, linked_field) \
 	__KFTF_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
+
+struct reloc_entry {
+	off_t pointer;
+	off_t value;
+};
+
+struct reloc_table {
+	int num_entries;
+	int padding[3]; // why?
+	struct reloc_entry entries[];
+};
+static_assert(offsetof(struct reloc_table, entries) %
+		      sizeof(struct reloc_entry) ==
+	      0);
+
+static void *kftf_parse_input(void *input, size_t input_size)
+{
+	pr_info("[ENTER]%s\n", __FUNCTION__);
+	size_t i;
+	void *payload_start;
+	uintptr_t *ptr_location;
+	struct reloc_entry re;
+
+	if (input_size < sizeof(struct reloc_table)) {
+		pr_warn("got misformed input in %s\n", __FUNCTION__);
+	}
+	struct reloc_table *rt = input;
+	pr_info("%s: num_entries = %d\n", __FUNCTION__, rt->num_entries);
+
+	payload_start = input + offsetof(struct reloc_table, entries) +
+			rt->num_entries * sizeof(struct reloc_entry);
+
+	if (payload_start >= input + input_size)
+		return NULL;
+
+	for (i = 0; i < rt->num_entries; i++) {
+		re = rt->entries[i];
+		ptr_location = (uintptr_t *)(payload_start + re.pointer);
+		if ((void *)ptr_location >= input + input_size)
+			return NULL;
+
+		*ptr_location = (uintptr_t)ptr_location + re.value;
+	}
+
+	pr_info("%s: parsed %d entries\n", __FUNCTION__, rt->num_entries);
+	return payload_start;
+}
 
 #endif /* KFTF_H */

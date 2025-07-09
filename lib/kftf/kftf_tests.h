@@ -33,7 +33,7 @@ FUZZ_TEST(kftf_fuzzable, struct kftf_simple_arg)
 	KFTF_EXPECT_NOT_NULL(kftf_simple_arg, first);
 	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, second, 'a', 'z');
 	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, third, 'a', 'z');
-	kftf_fuzzable(arg.first, arg.second, arg.third);
+	kftf_fuzzable(arg->first, arg->second, arg->third);
 }
 
 #endif /* KFTF_TESTS_H */
