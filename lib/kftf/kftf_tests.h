@@ -42,41 +42,30 @@ struct my_fun_func_arg {
 	size_t buffer_size;
 };
 
+volatile char __w;
 static void my_fun_func(const char *string, char *buffer, size_t buffer_size)
 {
 	size_t i;
 	/* string should be NULL terminated! */
-	pr_info("this is my string: %s", string);
+	pr_info("string length = %zu",
+		strlen(string) + 1 /* null terminated str */);
+	pr_info("buffer_size = %zu\n", buffer_size);
 
 	for (i = 0; i < buffer_size; i++) {
 		buffer[i]++;
-		pr_info("buffer[%zu] = %c\n", i, buffer[i]);
+		__w = buffer[i]; // avoid inlining
 	}
 }
 
 FUZZ_TEST(my_memncpy, struct my_fun_func_arg)
 {
-	const char *kernel_string;
-	char *kernel_buffer;
+	pr_info("[ENTER] %s\n", __FUNCTION__);
 
 	KFTF_ANNOTATE_STRING(my_fun_func_arg, string);
 	KFTF_ANNOTATE_LEN(my_fun_func_arg, buffer_size, buffer);
 	KFTF_EXPECT_NOT_NULL(my_fun_func_arg, string);
 	KFTF_EXPECT_NOT_NULL(my_fun_func_arg, buffer);
-
-	kernel_string = strndup_user(arg->string, PAGE_SIZE);
-	if (!kernel_string || IS_ERR(kernel_string))
-		return;
-
-	kernel_buffer = memdup_user(arg->buffer, arg->buffer_size);
-	if (!kernel_buffer || IS_ERR(kernel_buffer)) {
-		kfree(kernel_string);
-		return;
-	}
-
-	my_fun_func(kernel_string, kernel_buffer, arg->buffer_size);
-	kfree(kernel_string);
-	kfree(kernel_buffer);
+	my_fun_func(arg->string, arg->buffer, arg->buffer_size);
 }
 
 #endif /* KFTF_TESTS_H */
