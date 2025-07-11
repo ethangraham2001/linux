@@ -119,11 +119,8 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		void *buffer = kmalloc(len, GFP_KERNEL);                       \
 		if (!buffer || IS_ERR(buffer))                                 \
 			return PTR_ERR(buffer);                                \
-		err = write_input_cb_common(filp, buf, len, off, buffer,       \
-					    sizeof(buffer));                   \
+		err = write_input_cb_common(filp, buf, len, off, buffer, len); \
 		if (err != 0) {                                                \
-			pr_info("%s: failed to read data, len = %zu\n",        \
-				__FUNCTION__, len);                            \
 			kfree(buffer);                                         \
 			return err;                                            \
 		}                                                              \
@@ -283,49 +280,54 @@ struct kftf_annotation {
 	__KFTF_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 struct reloc_entry {
-	off_t pointer;
-	off_t value;
+	uintptr_t pointer; /* offset from the beginning of the payload */
+	uintptr_t value; /* difference between the pointed to address and the address itself */
 };
 
 struct reloc_table {
 	int num_entries;
-	int padding[3]; // why?
+	int padding[3];
 	struct reloc_entry entries[];
 };
 static_assert(offsetof(struct reloc_table, entries) %
 		      sizeof(struct reloc_entry) ==
 	      0);
 
+static const uintptr_t nullPtr = (uintptr_t)-1;
+
 static void *kftf_parse_input(void *input, size_t input_size)
 {
-	pr_info("[ENTER]%s\n", __FUNCTION__);
 	size_t i;
 	void *payload_start;
 	uintptr_t *ptr_location;
 	struct reloc_entry re;
+	pr_info("%s: input_size = %zu\n", __FUNCTION__, input_size);
 
 	if (input_size < sizeof(struct reloc_table)) {
 		pr_warn("got misformed input in %s\n", __FUNCTION__);
+		return NULL;
 	}
 	struct reloc_table *rt = input;
-	pr_info("%s: num_entries = %d\n", __FUNCTION__, rt->num_entries);
 
-	payload_start = input + offsetof(struct reloc_table, entries) +
+	payload_start = (char *)input + offsetof(struct reloc_table, entries) +
 			rt->num_entries * sizeof(struct reloc_entry);
-
 	if (payload_start >= input + input_size)
 		return NULL;
 
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
 		ptr_location = (uintptr_t *)(payload_start + re.pointer);
-		if ((void *)ptr_location >= input + input_size)
+		if ((void *)ptr_location + sizeof(uintptr_t) >=
+		    input + input_size)
 			return NULL;
 
-		*ptr_location = (uintptr_t)ptr_location + re.value;
+		if (re.value == nullPtr) {
+			*ptr_location = (uintptr_t)NULL;
+		} else {
+			*ptr_location = (uintptr_t)ptr_location + re.value;
+		}
 	}
 
-	pr_info("%s: parsed %d entries\n", __FUNCTION__, rt->num_entries);
 	return payload_start;
 }
 
