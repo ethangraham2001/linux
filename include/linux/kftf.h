@@ -135,6 +135,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		pr_info("invoking fuzz logic for %s\n", #func);                \
 		_fuzz_test_logic_##func(arg);                                  \
 		kfree(buffer);                                                 \
+		kfree(payload);                                                \
 		return len;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##func(func_arg_type *arg)
@@ -284,9 +285,16 @@ struct reloc_entry {
 	uintptr_t value; /* difference between the pointed to address and the address itself */
 };
 
+/*
+ * How many integers of padding in the relocation table between the header
+ * information and the relocation entries
+ */
+#define RELOC_TABLE_PADDING 2
+
 struct reloc_table {
 	int num_entries;
-	int padding[3];
+	uint32_t max_alignment;
+	int padding[RELOC_TABLE_PADDING];
 	struct reloc_entry entries[];
 };
 static_assert(offsetof(struct reloc_table, entries) %
@@ -298,8 +306,10 @@ static const uintptr_t nullPtr = (uintptr_t)-1;
 static void *kftf_parse_input(void *input, size_t input_size)
 {
 	size_t i;
-	void *payload_start;
+	void *payload_start, *out;
 	uintptr_t *ptr_location;
+	size_t payload_len, alloc_size;
+	struct reloc_table *rt;
 	struct reloc_entry re;
 	pr_info("%s: input_size = %zu\n", __FUNCTION__, input_size);
 
@@ -307,16 +317,35 @@ static void *kftf_parse_input(void *input, size_t input_size)
 		pr_warn("got misformed input in %s\n", __FUNCTION__);
 		return NULL;
 	}
-	struct reloc_table *rt = input;
+	rt = input;
 
 	payload_start = (char *)input + offsetof(struct reloc_table, entries) +
 			rt->num_entries * sizeof(struct reloc_entry);
 	if (payload_start >= input + input_size)
 		return NULL;
 
+	/*
+	 * To guarantee correct alignment of structures within the payload, we
+	 * allocate a new property that is aligned to the next power of two
+	 * greater than either the size of the payload or the maximum alignment
+	 * of the nested structures.
+	 */
+	payload_len = input_size - (payload_start - input);
+	alloc_size = MAX(roundup_pow_of_two(payload_len),
+			 roundup_pow_of_two(rt->max_alignment));
+	out = kmalloc(alloc_size, GFP_KERNEL);
+	if (!out) {
+		return NULL;
+	}
+	memcpy(out, payload_start, payload_len);
+
+	/*
+	 * Iterate through entries in the relocation table and patch the
+	 * pointers.
+	 */
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
-		ptr_location = (uintptr_t *)(payload_start + re.pointer);
+		ptr_location = (uintptr_t *)(out + re.pointer);
 		if ((void *)ptr_location + sizeof(uintptr_t) >=
 		    input + input_size)
 			return NULL;
@@ -328,7 +357,7 @@ static void *kftf_parse_input(void *input, size_t input_size)
 		}
 	}
 
-	return payload_start;
+	return out;
 }
 
 #endif /* KFTF_H */
