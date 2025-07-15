@@ -237,6 +237,10 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
 				 EXPECT_IN_RANGE)
 
+#define KFTF_EXPECT_LEN(expected_len, actual_len) \
+	if ((expected_len) != (actual_len))       \
+		return;
+
 enum kftf_annotation_attribute : uint8_t {
 	ATTRIBUTE_LEN = 0,
 	ATTRIBUTE_STRING,
@@ -291,17 +295,24 @@ static_assert(offsetof(struct reloc_table, entries) %
 		      sizeof(struct reloc_entry) ==
 	      0);
 
+/**
+ * This value should be known the fuzz engine.
+ */
 static const uintptr_t nullPtr = (uintptr_t)-1;
 
-static void *kftf_parse_input(void *input, size_t input_size)
+/* XXX: wasn't building before without attribute unused, but it is used in
+ * several locations - weird... */
+__attribute__((unused)) static void *kftf_parse_input(void *input,
+						      size_t input_size)
 {
 	size_t i;
 	void *payload_start, *out;
 	uintptr_t *ptr_location;
-	size_t payload_len, alloc_size;
+	size_t payload_len, alloc_size, entries_size, header_size;
 	struct reloc_table *rt;
 	struct reloc_entry re;
-	pr_info("%s: input_size = %zu\n", __FUNCTION__, input_size);
+	if (input_size > KMALLOC_MAX_SIZE)
+		return NULL;
 
 	if (input_size < sizeof(struct reloc_table)) {
 		pr_warn("got misformed input in %s\n", __FUNCTION__);
@@ -309,24 +320,54 @@ static void *kftf_parse_input(void *input, size_t input_size)
 	}
 	rt = input;
 
-	payload_start = (char *)input + offsetof(struct reloc_table, entries) +
-			rt->num_entries * sizeof(struct reloc_entry);
+	if (check_mul_overflow(rt->num_entries, sizeof(struct reloc_entry),
+			       &entries_size))
+		return NULL;
+	header_size = offsetof(struct reloc_table, entries) + entries_size;
+	if (header_size > input_size)
+		return NULL;
+
+	payload_start = (char *)input + header_size;
 	if (payload_start >= input + input_size)
 		return NULL;
 
-	/*
-	 * To guarantee correct alignment of structures within the payload, we
-	 * allocate a new property that is aligned to the next power of two
-	 * greater than either the size of the payload or the maximum alignment
-	 * of the nested structures.
-	 */
-	payload_len = input_size - (payload_start - input);
-	alloc_size = MAX(roundup_pow_of_two(payload_len),
-			 roundup_pow_of_two(rt->max_alignment));
-	out = kmalloc(alloc_size, GFP_KERNEL);
-	if (!out) {
+	if (!is_power_of_2(rt->max_alignment) || rt->max_alignment > PAGE_SIZE)
 		return NULL;
+
+	payload_len = input_size - (payload_start - input);
+
+	/*
+         * Check input for out-of-bounds pointers before before allocating
+         * aligned output buffer.
+         */
+	for (i = 0; i < rt->num_entries; i++) {
+		re = rt->entries[i];
+		if (re.pointer > payload_len ||
+		    re.pointer + sizeof(uintptr_t) > payload_len)
+			return NULL;
+
+		if (re.value == nullPtr)
+			continue;
+
+		if (re.pointer + re.value >= payload_len ||
+		    re.pointer + re.value + sizeof(uintptr_t) > payload_len)
+			return NULL;
 	}
+
+	/*
+         * To guarantee correct alignment of structures within the payload, we
+         * allocate a new buffer that is aligned to the next power of two
+         * greater than either the size of the payload + 1 or the maximum
+         * alignment of the nested structures. We add one to the payload length
+         * and call kzalloc to ensure that the payload is padded by trailing
+         * zeros to prevent false-positives on non-null terminated strings.
+         */
+	alloc_size =
+		MAX(roundup_pow_of_two(payload_len + 1), rt->max_alignment);
+	out = kzalloc(alloc_size, GFP_KERNEL);
+	if (!out)
+		return NULL;
+
 	memcpy(out, payload_start, payload_len);
 
 	/*
@@ -336,10 +377,6 @@ static void *kftf_parse_input(void *input, size_t input_size)
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
 		ptr_location = (uintptr_t *)(out + re.pointer);
-		if ((void *)ptr_location + sizeof(uintptr_t) >=
-		    input + input_size)
-			return NULL;
-
 		if (re.value == nullPtr) {
 			*ptr_location = (uintptr_t)NULL;
 		} else {
