@@ -288,27 +288,10 @@ struct parse_qos_arg {
 
 FUZZ_TEST(test_parse_qos, struct parse_qos_arg)
 {
-	size_t bufflen;
-	char *kernel_buff;
 	int ret;
-	size_t count = 2 * PAGE_SIZE;
 	KFTF_EXPECT_NOT_NULL(parse_qos_arg, buff);
 
-	bufflen = strnlen_user(arg.buff, count);
-	if (bufflen > count)
-		return;
-
-	kernel_buff = strndup_user(arg.buff, bufflen);
-	if (!kernel_buff ||
-	    kernel_buff == ZERO_SIZE_PTR /* be careful here */) {
-		pr_warn("failed to allocate kernel buffer\n");
-		return;
-	}
-
-	pr_info("test_parse_qos: bufflen = %zu\n", bufflen);
-	ret = parse_qos(kernel_buff);
-
-	kfree(kernel_buff);
+	ret = parse_qos(arg->buff);
 }
 
 /*

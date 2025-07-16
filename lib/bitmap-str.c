@@ -407,28 +407,24 @@ struct bitmap_parselist_arg {
 
 FUZZ_TEST(test_bitmap_parselist, struct bitmap_parselist_arg)
 {
-	unsigned long maskp_out;
-	size_t buflen;
-	char *kernel_buf;
-	size_t count = 2 * PAGE_SIZE;
+	unsigned long *maskp;
+	size_t maskp_size;
 
 	KFTF_EXPECT_NOT_NULL(bitmap_parselist_arg, buf);
+	KFTF_EXPECT_IN_RANGE(bitmap_parselist_arg, nmaskbits, 16, 1024 * 10);
+	KFTF_ANNOTATE_STRING(bitmap_parselist_arg, buf);
 
-	buflen = strnlen_user(arg.buf, count);
-	if (buflen > count)
-		return;
-
-	kernel_buf = strndup_user(arg.buf, count);
-	if (!kernel_buf) {
-		pr_warn("test_bitmap_parselist: unable to allocate kernel buffer");
+	// number of longs that we need to allocate
+	maskp_size = BITS_TO_LONGS(arg->nmaskbits) * sizeof(unsigned long);
+	maskp = kmalloc(maskp_size, GFP_KERNEL);
+	if (!maskp) {
+		pr_warn("bug: failed to allocate kernel buffer for maskp\n");
 		return;
 	}
 
-	pr_info("test_bitmap_parselist: buflen = %zu, buf = %s, nmaskbits = %d\n",
-		buflen, kernel_buf, arg.nmaskbits);
-	bitmap_parselist(kernel_buf, &maskp_out, arg.nmaskbits);
+	bitmap_parselist(arg->buf, maskp, arg->nmaskbits);
 
-	kfree(kernel_buf);
+	kfree(maskp);
 }
 
 /**

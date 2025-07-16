@@ -15,6 +15,7 @@
 #include <keys/asymmetric-subtype.h>
 #include <keys/asymmetric-parser.h>
 #include <crypto/public_key.h>
+#include <linux/kftf.h>
 #include "pkcs8.asn1.h"
 
 struct pkcs8_parse_context {
@@ -128,6 +129,22 @@ error_decode:
 	kfree(ctx.pub);
 error:
 	return ERR_PTR(ret);
+}
+
+struct pkcs8_parse_arg {
+	const void *data;
+	size_t datalen;
+};
+
+FUZZ_TEST(test_pkcs8_parse, struct pkcs8_parse_arg)
+{
+	const size_t max_size = 16 * 1024;
+
+	KFTF_EXPECT_NOT_NULL(pkcs8_parse_arg, data);
+	if (arg->datalen > max_size)
+		return;
+
+	pkcs8_parse(arg->data, arg->datalen);
 }
 
 /*
