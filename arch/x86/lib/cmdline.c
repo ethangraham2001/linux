@@ -11,6 +11,8 @@
 #include <asm/cmdline.h>
 #include <asm/bug.h>
 
+#include <linux/kftf.h>
+
 static inline int myisspace(u8 c)
 {
 	return c <= ' ';	/* Close enough approximation */
@@ -232,4 +234,29 @@ int cmdline_find_option(const char *cmdline, const char *option, char *buffer,
 		return __cmdline_find_option(builtin_cmdline, COMMAND_LINE_SIZE, option, buffer, bufsize);
 
 	return ret;
+}
+
+struct cmdline_find_option_arg {
+	const char *cmdline;
+	const char *option;
+};
+
+FUZZ_TEST(test_cmdline_find_option, struct cmdline_find_option_arg)
+{
+	char *buffer;
+
+	KFTF_EXPECT_NOT_NULL(cmlind_find_option_arg, cmdline);
+	KFTF_EXPECT_NOT_NULL(cmlind_find_option_arg, option);
+	KFTF_ANNOTATE_STRING(cmdline_find_option_arg, cmdline);
+	KFTF_ANNOTATE_STRING(cmdline_find_option_arg, option);
+
+	int bufsize = 1024;
+	buffer = kmalloc(bufsize, GFP_KERNEL);
+	if (!buffer || IS_ERR(buffer)) {
+		pr_warn("failed to allocate a kernel buffer");
+		return;
+	}
+
+	cmdline_find_option(arg->cmdline, arg->option, buffer, bufsize);
+	kfree(buffer);
 }

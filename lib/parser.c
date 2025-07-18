@@ -10,6 +10,7 @@
 #include <linux/parser.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/kftf.h>
 
 /*
  * max size needed by different bases to express U64
@@ -151,8 +152,37 @@ static int match_number(substring_t *s, int *result, int base)
 	else if (val < (long)INT_MIN || val > (long)INT_MAX)
 		ret = -ERANGE;
 	else
-		*result = (int) val;
+		*result = (int)val;
 	return ret;
+}
+
+struct match_number_arg {
+	char *str;
+	size_t from;
+	size_t to;
+	int base;
+};
+
+FUZZ_TEST(test_match_number, struct match_number_arg)
+{
+	size_t str_len;
+
+	KFTF_EXPECT_NOT_NULL(match_number_arg, str);
+	KFTF_ANNOTATE_STRING(match_number_arg, str);
+	KFTF_ANNOTATE_LEN(match_number_arg, str_len, str);
+
+	str_len = strlen(arg->str);
+
+	/* quite verbose - ideally should encode with some annotation system */
+	if (arg->from >= str_len || arg->to >= str_len || arg->from > arg->to) {
+		return;
+	}
+
+	substring_t s = { .from = arg->str + arg->from,
+			  .to = arg->str + arg->to };
+
+	int result;
+	match_number(&s, &result, arg->base);
 }
 
 /**

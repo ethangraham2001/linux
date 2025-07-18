@@ -7,6 +7,7 @@
 #include <linux/export.h>
 #include <linux/hex.h>
 #include <linux/kernel.h>
+#include <linux/kftf.h>
 #include <linux/mm.h>
 #include <linux/string.h>
 
@@ -399,6 +400,32 @@ int bitmap_parselist(const char *buf, unsigned long *maskp, int nmaskbits)
 }
 EXPORT_SYMBOL(bitmap_parselist);
 
+struct bitmap_parselist_arg {
+	const char *buf;
+	int nmaskbits;
+};
+
+FUZZ_TEST(test_bitmap_parselist, struct bitmap_parselist_arg)
+{
+	unsigned long *maskp;
+	size_t maskp_size;
+
+	KFTF_EXPECT_NOT_NULL(bitmap_parselist_arg, buf);
+	KFTF_EXPECT_IN_RANGE(bitmap_parselist_arg, nmaskbits, 16, 1024 * 10);
+	KFTF_ANNOTATE_STRING(bitmap_parselist_arg, buf);
+
+	// number of longs that we need to allocate
+	maskp_size = BITS_TO_LONGS(arg->nmaskbits) * sizeof(unsigned long);
+	maskp = kmalloc(maskp_size, GFP_KERNEL);
+	if (!maskp) {
+		pr_warn("bug: failed to allocate kernel buffer for maskp\n");
+		return;
+	}
+
+	bitmap_parselist(arg->buf, maskp, arg->nmaskbits);
+
+	kfree(maskp);
+}
 
 /**
  * bitmap_parselist_user() - convert user buffer's list format ASCII

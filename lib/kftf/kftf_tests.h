@@ -4,10 +4,17 @@
 #include <linux/kftf.h>
 #include <linux/math.h>
 
+struct nested {
+	char value;
+};
+struct top_level {
+	struct nested nested;
+};
+
 struct kftf_simple_arg {
-	char first;
-	char second;
-	char third;
+	struct top_level first;
+	struct nested second;
+	struct top_level third;
 };
 
 // contains a bug!
@@ -30,10 +37,10 @@ static void kftf_fuzzable(char first, char second, char third)
 
 FUZZ_TEST(kftf_fuzzable, struct kftf_simple_arg)
 {
-	KFTF_EXPECT_NOT_NULL(kftf_simple_arg, first);
-	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, second, 'a', 'z');
-	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, third, 'a', 'z');
-	kftf_fuzzable(arg->first, arg->second, arg->third);
+	// XXX: we need to figure out how to handle nested struct fields,
+	// whoops!
+	kftf_fuzzable(arg->first.nested.value, arg->second.value,
+		      arg->third.nested.value);
 }
 
 struct my_fun_func_arg {

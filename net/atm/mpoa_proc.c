@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/proc_fs.h>
 #include <linux/ktime.h>
+#include <linux/kftf.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/atmmpc.h>
@@ -279,6 +280,18 @@ static int parse_qos(const char *buff)
 
 	atm_mpoa_add_qos(ipaddr, &qos);
 	return 1;
+}
+
+struct parse_qos_arg {
+	const char *buff;
+};
+
+FUZZ_TEST(test_parse_qos, struct parse_qos_arg)
+{
+	int ret;
+	KFTF_EXPECT_NOT_NULL(parse_qos_arg, buff);
+
+	ret = parse_qos(arg->buff);
 }
 
 /*

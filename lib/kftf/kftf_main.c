@@ -11,8 +11,6 @@
 #include <linux/kftf.h>
 #include <linux/printk.h>
 
-#include "kftf_tests.h"
-
 extern const struct kftf_test_case __kftf_test_case_start[];
 extern const struct kftf_test_case __kftf_test_case_end[];
 extern const struct kftf_constraint __kftf_constraint_start[];
