@@ -226,6 +226,7 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 enum kftf_annotation_attribute : uint8_t {
 	ATTRIBUTE_LEN = 0,
 	ATTRIBUTE_STRING,
+	ATTRIBUTE_ARRAY,
 };
 
 struct kftf_annotation {
@@ -249,6 +250,15 @@ struct kftf_annotation {
  */
 #define KFTF_ANNOTATE_STRING(arg_type, field) \
 	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_STRING)
+
+/**
+ * Annotates arg_type.field as an arrray. For example, assume that 
+ * arg_type.field is of type `unsigned long *`, which could either represent
+ * a pointer to a single value or an array. Using this annotation removes that
+ * ambiguity.
+ */
+#define KFTF_ANNOTEATE_ARRAY(arg_type, field) \
+	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_ARRAY)
 
 /**
  * Annotates arg_type.field as the length of arg_type.linked_field
