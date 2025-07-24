@@ -7,6 +7,9 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFTF)");
 
+/* forward decl */
+static void *kftf_parse_input(void *input, size_t input_size);
+
 /**
  * struct kftf_test case defines a single fuzz test case. These should not
  * be created manually. Instead the user should use the FUZZ_TEST macro defined
@@ -88,7 +91,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 					      size_t len, loff_t *off);        \
 	static ssize_t _read_metadata_callback_##func(                         \
 		struct file *filp, char __user *buf, size_t len, loff_t *off); \
-	static void _fuzz_test_logic_##func(func_arg_type arg);                \
+	static void _fuzz_test_logic_##func(func_arg_type *arg);               \
 	/* test case struct initialization */                                  \
 	const struct kftf_test_case __fuzz_test__##func                        \
 		__attribute__((__section__(".kftf_test"), __used__)) = {       \
@@ -111,20 +114,31 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 					      const char __user *buf,          \
 					      size_t len, loff_t *off)         \
 	{                                                                      \
+		pr_info("[ENTER] %s\n", __FUNCTION__);                         \
 		int err;                                                       \
-		func_arg_type arg;                                             \
-		err = write_input_cb_common(filp, buf, len, off, &arg,         \
-					    sizeof(arg));                      \
+		void *buffer = kmalloc(len, GFP_KERNEL);                       \
+		if (!buffer || IS_ERR(buffer))                                 \
+			return PTR_ERR(buffer);                                \
+		err = write_input_cb_common(filp, buf, len, off, buffer, len); \
 		if (err != 0) {                                                \
+			kfree(buffer);                                         \
 			return err;                                            \
 		}                                                              \
+		void *payload = kftf_parse_input(buffer, len);                 \
+		if (!payload) {                                                \
+			kfree(buffer);                                         \
+			return -1;                                             \
+		}                                                              \
+		func_arg_type *arg = payload;                                  \
 		/* call the user's logic on the provided arg. */               \
 		/* NOTE: define some success/failure return types? */          \
 		pr_info("invoking fuzz logic for %s\n", #func);                \
 		_fuzz_test_logic_##func(arg);                                  \
+		kfree(buffer);                                                 \
+		kfree(payload);                                                \
 		return len;                                                    \
 	}                                                                      \
-	static void _fuzz_test_logic_##func(func_arg_type arg)
+	static void _fuzz_test_logic_##func(func_arg_type *arg)
 
 /**
  * Reports a bug with a predictable prefix so that it can be parsed by a
@@ -195,22 +209,22 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 		};
 
 #define KFTF_EXPECT_EQ(arg_type, field, val) \
-	if (arg.field != val)                \
+	if (arg->field != val)               \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ)
 
 #define KFTF_EXPECT_NE(arg_type, field, val) \
-	if (arg.field == val)                \
+	if (arg->field == val)               \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
 
 #define KFTF_EXPECT_LE(arg_type, field, val) \
-	if (arg.field > val)                 \
+	if (arg->field > val)                \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE)
 
 #define KFTF_EXPECT_GT(arg_type, field, val) \
-	if (arg.field <= val)                \
+	if (arg->field <= val)               \
 		return;                      \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
 
@@ -218,10 +232,14 @@ static_assert(sizeof(struct kftf_constraint) == 64,
 	KFTF_EXPECT_NE(arg_type, field, 0x0)
 
 #define KFTF_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)     \
-	if (arg.field < lower_bound || arg.field > upper_bound)             \
+	if (arg->field < lower_bound || arg->field > upper_bound)           \
 		return;                                                     \
 	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
 				 EXPECT_IN_RANGE)
+
+#define KFTF_EXPECT_LEN(expected_len, actual_len) \
+	if ((expected_len) != (actual_len))       \
+		return;
 
 enum kftf_annotation_attribute : uint8_t {
 	ATTRIBUTE_LEN = 0,
@@ -265,5 +283,118 @@ struct kftf_annotation {
  */
 #define KFTF_ANNOTATE_LEN(arg_type, field, linked_field) \
 	__KFTF_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
+
+struct reloc_entry {
+	uintptr_t pointer; /* offset from the beginning of the payload */
+	uintptr_t value; /* difference between the pointed to address and the address itself */
+};
+
+/*
+ * How many integers of padding in the relocation table between the header
+ * information and the relocation entries
+ */
+#define RELOC_TABLE_PADDING 2
+
+struct reloc_table {
+	int num_entries;
+	uint32_t max_alignment;
+	int padding[RELOC_TABLE_PADDING];
+	struct reloc_entry entries[];
+};
+static_assert(offsetof(struct reloc_table, entries) %
+		      sizeof(struct reloc_entry) ==
+	      0);
+
+/**
+ * This value should be known the fuzz engine.
+ */
+static const uintptr_t nullPtr = (uintptr_t)-1;
+
+/* XXX: wasn't building before without attribute unused, but it is used in
+ * several locations - weird... */
+__attribute__((unused)) static void *kftf_parse_input(void *input,
+						      size_t input_size)
+{
+	size_t i;
+	void *payload_start, *out;
+	uintptr_t *ptr_location;
+	size_t payload_len, alloc_size, entries_size, header_size;
+	struct reloc_table *rt;
+	struct reloc_entry re;
+	if (input_size > KMALLOC_MAX_SIZE)
+		return NULL;
+
+	if (input_size < sizeof(struct reloc_table)) {
+		pr_warn("got misformed input in %s\n", __FUNCTION__);
+		return NULL;
+	}
+	rt = input;
+
+	if (check_mul_overflow(rt->num_entries, sizeof(struct reloc_entry),
+			       &entries_size))
+		return NULL;
+	header_size = offsetof(struct reloc_table, entries) + entries_size;
+	if (header_size > input_size)
+		return NULL;
+
+	payload_start = (char *)input + header_size;
+	if (payload_start >= input + input_size)
+		return NULL;
+
+	if (!is_power_of_2(rt->max_alignment) || rt->max_alignment > PAGE_SIZE)
+		return NULL;
+
+	payload_len = input_size - (payload_start - input);
+
+	/*
+         * Check input for out-of-bounds pointers before before allocating
+         * aligned output buffer.
+         */
+	for (i = 0; i < rt->num_entries; i++) {
+		re = rt->entries[i];
+		if (re.pointer > payload_len ||
+		    re.pointer + sizeof(uintptr_t) > payload_len)
+			return NULL;
+
+		if (re.value == nullPtr)
+			continue;
+
+		if (re.pointer + re.value >= payload_len ||
+		    re.pointer + re.value + sizeof(uintptr_t) > payload_len)
+			return NULL;
+	}
+
+	/*
+         * To guarantee correct alignment of structures within the payload, we
+         * allocate a new buffer that is aligned to the next power of two
+         * greater than either the size of the payload + 1 or the maximum
+         * alignment of the nested structures. We add one to the payload length
+         * and call kzalloc to ensure that the payload is padded by trailing
+         * zeros to prevent false-positives on non-null terminated strings.
+         */
+	alloc_size =
+		MAX(roundup_pow_of_two(payload_len + 1), rt->max_alignment);
+	out = kzalloc(alloc_size, GFP_KERNEL);
+	if (!out)
+		return NULL;
+
+	memcpy(out, payload_start, payload_len);
+
+	/*
+	 * Iterate through entries in the relocation table and patch the
+	 * pointers.
+	 */
+	for (i = 0; i < rt->num_entries; i++) {
+		re = rt->entries[i];
+		ptr_location = (uintptr_t *)(out + re.pointer);
+		if (re.value == nullPtr) {
+			*ptr_location = (uintptr_t)NULL;
+		} else {
+			*ptr_location = (uintptr_t)ptr_location + re.value;
+		}
+	}
+
+	return out;
+}
 
 #endif /* KFTF_H */
