@@ -31,9 +31,10 @@ struct kftf_test_case {
 				    loff_t *);
 };
 
-static int write_input_cb_common(struct file *filp, const char __user *buf,
-				 size_t len, loff_t *off, void *arg,
-				 size_t arg_size)
+// XXX: why can't we use without the attribute unused anymore??
+__attribute__((unused)) static int
+write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
+		      loff_t *off, void *arg, size_t arg_size)
 {
 	if (len != arg_size) {
 		return -EINVAL;
@@ -90,7 +91,7 @@ static int write_input_cb_common(struct file *filp, const char __user *buf,
 	static void _fuzz_test_logic_##func(func_arg_type arg);                \
 	/* test case struct initialization */                                  \
 	const struct kftf_test_case __fuzz_test__##func                        \
-		__attribute__((__section__(".kftf"), __used__)) = {            \
+		__attribute__((__section__(".kftf_test"), __used__)) = {       \
 			.name = #func,                                         \
 			.arg_type_name = #func_arg_type,                       \
 			.write_input_cb = _write_callback_##func,              \
@@ -124,5 +125,145 @@ static int write_input_cb_common(struct file *filp, const char __user *buf,
 		return len;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##func(func_arg_type arg)
+
+/**
+ * Reports a bug with a predictable prefix so that it can be parsed by a
+ * fuzzing driver.
+ */
+#define KFTF_REPORT_BUG(msg, fmt) pr_warn("bug: " #msg, fmt)
+
+/**
+ * struct kftf_constraint_type defines a type of constraint. The fuzzing driver
+ * should be aware of these.
+ */
+enum kftf_constraint_type : uint8_t {
+	EXPECT_EQ = 0,
+	EXPECT_NE,
+	EXPECT_LE,
+	EXPECT_GT,
+	EXPECT_IN_RANGE,
+};
+
+/**
+ * ktft_constraint defines a domain constraint for a struct variable that is
+ * taken as input for a FUZZ_TEST
+ *
+ * @input_type: the name of the input (a struct name)
+ * @field_name: the name of the field that this domain constraint applies to
+ * @value1: used in all comparisons
+ * @value2: only used in comparisons that require multiple values, e.g. range
+ *	constraints
+ * @type: the type of the constraint, enumerated above
+ *
+ * Note: if this struct is not a multiple of 64 bytes, everything breaks and
+ * we get corrupted data and occasional kernel panics. To avoid this happening,
+ * we enforce 64 Byte alignment and statically assert that this struct has size
+ * 64 Bytes.
+ */
+struct kftf_constraint {
+	const char *input_type;
+	const char *field_name;
+	uintptr_t value1;
+	uintptr_t value2;
+	enum kftf_constraint_type type;
+} __attribute__((aligned(64)));
+
+static_assert(sizeof(struct kftf_constraint) == 64,
+	      "struct kftf_constraint should have size 64");
+
+/**
+ * __KFTF_DEFINE_CONSTRAINT - defines a fuzz test constraint linked to a given
+ * argument type belonging to a fuzz test. See FUZZ_TEST above.
+ *
+ * @arg_type: the type of argument (a struct) without the leading "struct" in
+ *	its name, which will be prepended.
+ * @field: the field on which the constraint is defined.
+ * @val: used for comparison constraints such as KFTF_EXPECT_NE
+ * @tpe: the type of constaint that this defines
+ *
+ * This macro is intended for internal use. A user should opt for 
+ * KFTF_EXPECT_* instead when defining fuzz test constraints.
+ */
+#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)             \
+	static struct kftf_constraint __constraint_##arg_type##_##field        \
+		__attribute__((__section__(".kftf_constraint"), __used__)) = { \
+			.input_type = "struct " #arg_type,                     \
+			.field_name = #field,                                  \
+			.value1 = (uintptr_t)val1,                             \
+			.value2 = (uintptr_t)val2,                             \
+			.type = tpe,                                           \
+		};
+
+#define KFTF_EXPECT_EQ(arg_type, field, val) \
+	if (arg.field != val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ)
+
+#define KFTF_EXPECT_NE(arg_type, field, val) \
+	if (arg.field == val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
+
+#define KFTF_EXPECT_LE(arg_type, field, val) \
+	if (arg.field > val)                 \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE)
+
+#define KFTF_EXPECT_GT(arg_type, field, val) \
+	if (arg.field <= val)                \
+		return;                      \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
+
+#define KFTF_EXPECT_NOT_NULL(arg_type, field) \
+	KFTF_EXPECT_NE(arg_type, field, 0x0)
+
+#define KFTF_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)     \
+	if (arg.field < lower_bound || arg.field > upper_bound)             \
+		return;                                                     \
+	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
+				 EXPECT_IN_RANGE)
+
+enum kftf_annotation_attribute : uint8_t {
+	ATTRIBUTE_LEN = 0,
+	ATTRIBUTE_STRING,
+	ATTRIBUTE_ARRAY,
+};
+
+struct kftf_annotation {
+	const char *input_type;
+	const char *field_name;
+	const char *linked_field_name;
+	enum kftf_annotation_attribute attrib;
+} __attribute__((aligned(32)));
+
+#define __KFTF_ANNOTATE(arg_type, field, linked_field, attribute)              \
+	static struct kftf_annotation __annotation_##arg_type##_##field        \
+		__attribute__((__section__(".kftf_annotation"), __used__)) = { \
+			.input_type = "struct " #arg_type,                     \
+			.field_name = #field,                                  \
+			.linked_field_name = #linked_field,                    \
+			.attrib = attribute,                                   \
+		};
+
+/**
+ * Annotates arg_type.field as a string
+ */
+#define KFTF_ANNOTATE_STRING(arg_type, field) \
+	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_STRING)
+
+/**
+ * Annotates arg_type.field as an arrray. For example, assume that 
+ * arg_type.field is of type `unsigned long *`, which could either represent
+ * a pointer to a single value or an array. Using this annotation removes that
+ * ambiguity.
+ */
+#define KFTF_ANNOTEATE_ARRAY(arg_type, field) \
+	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_ARRAY)
+
+/**
+ * Annotates arg_type.field as the length of arg_type.linked_field
+ */
+#define KFTF_ANNOTATE_LEN(arg_type, field, linked_field) \
+	__KFTF_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 #endif /* KFTF_H */

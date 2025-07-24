@@ -11,8 +11,12 @@
 #include <linux/kftf.h>
 #include <linux/printk.h>
 
-extern const struct kftf_test_case __kftf_start[];
-extern const struct kftf_test_case __kftf_end[];
+#include "kftf_tests.h"
+
+extern const struct kftf_test_case __kftf_test_case_start[];
+extern const struct kftf_test_case __kftf_test_case_end[];
+extern const struct kftf_constraint __kftf_constraint_start[];
+extern const struct kftf_constraint __kftf_constraint_end[];
 
 /**
  * struct kftf_dentry - A container for a debugfs dentry and its fops.
@@ -87,11 +91,12 @@ const umode_t kftf_flags_r = 0444;
 static int __init kftf_init(void)
 {
 	const struct kftf_test_case *test;
+	const struct kftf_constraint *constraint;
 	int ret = 0;
 	int i = 0;
 	size_t num_test_cases;
 
-	num_test_cases = __kftf_end - __kftf_start;
+	num_test_cases = __kftf_test_case_end - __kftf_test_case_start;
 
 	st.debugfs_state = kmalloc(
 		num_test_cases * sizeof(struct kftf_debugfs_state), GFP_KERNEL);
@@ -111,7 +116,8 @@ static int __init kftf_init(void)
 	}
 
 	/* iterate over all discovered test cases and set up debugfs entries */
-	for (test = __kftf_start; test < __kftf_end; test++, i++) {
+	for (test = __kftf_test_case_start; test < __kftf_test_case_end;
+	     test++, i++) {
 		/* create a directory for the discovered test case */
 		st.debugfs_state[i].test_dir =
 			debugfs_create_dir(test->name, st.kftf_dir);
@@ -163,6 +169,19 @@ static int __init kftf_init(void)
 		}
 
 		pr_info("kftf: registered %s\n", test->name);
+	}
+
+	// TODO: make debugfs entries for these constraints
+	size_t num_constraints = 0;
+	for (constraint = __kftf_constraint_start;
+	     constraint < __kftf_constraint_end; constraint++) {
+		pr_info("kftf: addr = 0x%lX\n", (size_t)constraint);
+		pr_info("input type: %s\n", constraint->input_type);
+		pr_info("field name: %s\n", constraint->field_name);
+		pr_info("value1:     %lx\n", constraint->value1);
+		pr_info("value2:     %lx\n", constraint->value2);
+		pr_info("type:       %d\n", constraint->type);
+		num_constraints++;
 	}
 
 	return 0;
