@@ -14,7 +14,9 @@ struct kfuzztest_target {
 	const char *arg_type_name;
 	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf,
 				  size_t len, loff_t *off);
-};
+} __attribute__((aligned(32)));
+static_assert(sizeof(struct kfuzztest_target) == 32,
+	      "struct kfuzztest_target should have size 32");
 
 __attribute__((unused)) static int
 write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
