@@ -9,10 +9,10 @@
 #include <linux/export.h>
 #include <linux/oid_registry.h>
 #include <linux/kernel.h>
-#include <linux/kftf.h>
 #include <linux/errno.h>
 #include <linux/bug.h>
 #include <linux/asn1.h>
+#include <linux/kfuzztest.h>
 #include "oid_registry_data.c"
 
 MODULE_DESCRIPTION("OID Registry");
@@ -181,31 +181,29 @@ struct sprint_oid_arg {
 
 FUZZ_TEST(test_sprint_oid, struct sprint_oid_arg)
 {
-	// ignore null pointers
-	KFTF_EXPECT_NOT_NULL(sprint_oid_arg, data);
-	KFTF_EXPECT_IN_RANGE(sprint_oid_arg, bufsize, 16, PAGE_SIZE);
+	KFUZZTEST_EXPECT_NOT_NULL(sprint_oid_arg, data);
+	KFUZZTEST_EXPECT_IN_RANGE(sprint_oid_arg, bufsize, 16, PAGE_SIZE);
+	KFUZZTEST_ANNOTATE_LEN(sprint_oid_arg, datasize, data);
 
-	char *kernel_data = kmalloc(arg.datasize, GFP_KERNEL);
-	if (!kernel_data) {
-		pr_warn("bug: unable to kmalloc a buffer for kernel data\n");
+	/* limit to a reasonable bufsize */
+	if (arg->bufsize > 4 * PAGE_SIZE)
+		return;
+
+	/* This actually works - maybe a macro for this?? */
+	if (ksize(arg) < sizeof(arg->data) + sizeof(arg->datasize) +
+				 sizeof(arg->bufsize) + arg->datasize) {
+		pr_warn("invalid buffer size!\n");
 		return;
 	}
-	if (copy_from_user(kernel_data, arg.data, arg.datasize)) {
-		pr_warn("bug: unable to copy data from user to kernel\n");
-		kfree(kernel_data);
-		return;
-	}
-	char *buffer = kmalloc(arg.bufsize, GFP_KERNEL);
+
+	char *buffer = kmalloc(arg->bufsize, GFP_KERNEL);
 	if (!buffer) {
 		pr_warn("bug: unable to kmalloc a buffer\n");
-		kfree(kernel_data);
 		return;
 	}
 
-	sprint_oid((const char *)kernel_data, arg.datasize, buffer,
-		   arg.bufsize);
+	sprint_oid(arg->data, arg->datasize, buffer, arg->bufsize);
 	kfree(buffer);
-	kfree(kernel_data);
 }
 
 EXPORT_SYMBOL_GPL(sprint_oid);
