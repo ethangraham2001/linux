@@ -34,7 +34,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  *
  * @test_name: Name of the fuzz target, which is used to create the associated
  *	debufs entries.
- * @func_arg_type: the input type of fuzz target. This should always be a 
+ * @test_arg_type: the input type of fuzz target. This should always be a 
  *	struct type even when fuzzing with a single input parameter in order
  *	to take advantage of the domain constraint and annotation systems. See 
  *	usage example below.
@@ -53,17 +53,17 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  *
  * // Assume that we are fuzzing some function func(T1 param1, ... TN paramN).
  * // Define input type of the fuzz target. This should be always be a struct.
- * struct func_arg_type {
+ * struct test_arg_type {
  *	T1 arg1;
  *	...
  *	TN argn;
  * };
  *
  * // Define the test case.
- * FUZZ_TEST(test_func, struct func_arg_type) 
+ * FUZZ_TEST(test_func, struct test_arg_type) 
  * {
  *      int ret;
- *	// arg is provided by the macro, and is of type struct func_arg_type.
+ *	// arg is provided by the macro, and is of type struct test_arg_type.
  *	ret = func(arg.arg1, ..., arg.argn);
  *	// Validate the return value if testing for correctness.
  *	if (ret != expected_value) {
@@ -71,21 +71,21 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  *	}
  * }
  */
-#define FUZZ_TEST(test_name, func_arg_type)                                    \
-	static ssize_t _write_callback_##func(struct file *filp,               \
-					      const char __user *buf,          \
-					      size_t len, loff_t *off);        \
-	static void _fuzz_test_logic_##func(func_arg_type *arg);               \
-	const struct kfuzztest_target __fuzz_test__##func __attribute__((      \
+#define FUZZ_TEST(test_name, test_arg_type)                                    \
+	static ssize_t _write_callback_##test_name(struct file *filp,          \
+						   const char __user *buf,     \
+						   size_t len, loff_t *off);   \
+	static void _fuzz_test_logic_##test_name(test_arg_type *arg);          \
+	const struct kfuzztest_target __fuzz_test__##test_name __attribute__(( \
 		__section__(".kfuzztest_target"), __used__)) = {               \
 		.name = #test_name,                                            \
-		.arg_type_name = #func_arg_type,                               \
-		.write_input_cb = _write_callback_##func,                      \
+		.arg_type_name = #test_arg_type,                               \
+		.write_input_cb = _write_callback_##test_name,                 \
 	};                                                                     \
 	/* Invoked when data is written into the target's input file. */       \
-	static ssize_t _write_callback_##func(struct file *filp,               \
-					      const char __user *buf,          \
-					      size_t len, loff_t *off)         \
+	static ssize_t _write_callback_##test_name(struct file *filp,          \
+						   const char __user *buf,     \
+						   size_t len, loff_t *off)    \
 	{                                                                      \
 		int err;                                                       \
 		void *buffer = kmalloc(len, GFP_KERNEL);                       \
@@ -101,14 +101,14 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 			kfree(buffer);                                         \
 			return -1;                                             \
 		}                                                              \
-		func_arg_type *arg = payload;                                  \
+		test_arg_type *arg = payload;                                  \
 		/* Call the user's logic on the provided written input. */     \
-		_fuzz_test_logic_##func(arg);                                  \
+		_fuzz_test_logic_##test_name(arg);                             \
 		kfree(buffer);                                                 \
 		kfree(payload);                                                \
 		return len;                                                    \
 	}                                                                      \
-	static void _fuzz_test_logic_##func(func_arg_type *arg)
+	static void _fuzz_test_logic_##test_name(test_arg_type *arg)
 
 /**
  * Reports a bug with a predictable prefix so that it can be parsed by a
