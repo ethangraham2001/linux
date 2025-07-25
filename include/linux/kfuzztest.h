@@ -7,7 +7,6 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
-/* forward decl */
 static void *kfuzztest_parse_input(void *input, size_t input_size);
 
 struct kfuzztest_target {
@@ -15,11 +14,8 @@ struct kfuzztest_target {
 	const char *arg_type_name;
 	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf,
 				  size_t len, loff_t *off);
-	ssize_t (*read_metadata_cb)(struct file *, char __user *, size_t,
-				    loff_t *);
 };
 
-// XXX: why can't we use without the attribute unused anymore??
 __attribute__((unused)) static int
 write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		      loff_t *off, void *arg, size_t arg_size)
@@ -34,71 +30,63 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 }
 
 /**
- * FUZZ_TEST - defines a fuzz test case for a function.
- * @func: the function to be fuzzed. This is used to name the test case and
- *	create associated debufs entries.
- * @func_arg_type: the input type of func. If func takes multiple arguments,
- *	then one should wrap that inside of a multi-fielded struct. See usage
- *	example below.
+ * FUZZ_TEST - defines a KFuzzTest target.
+ *
+ * @test_name: Name of the fuzz target, which is used to create the associated
+ *	debufs entries.
+ * @func_arg_type: the input type of fuzz target. This should always be a 
+ *	struct type even when fuzzing with a single input parameter in order
+ *	to take advantage of the domain constraint and annotation systems. See 
+ *	usage example below.
  *
  *
- * This macro generates all of the necessary boilerplate for a KFuzzTest driver,
- * which is placed in a dedicated ".kfuzztest_target" section.
+ * This macro generates all of the necessary boilerplate for a KFuzzTest 
+ * driver, which is placed in a dedicated ".kfuzztest_target" that is used by 
+ * the KFuzzTest module and can be read by a fuzzing engine.
  *
  * For each test, this macro generates
  *	- A buffer to receive input through the debugfs entry
  *	- A mutex to protect the input buffer
  *	- A `struct kfuzztest_target` instance
  *
- * Example usagea:
+ * Example usage:
  *
- * Assume some function `func(T1 param1, ... TN paramN)`
- * // Define input type of the target function
+ * // Assume that we are fuzzing some function func(T1 param1, ... TN paramN).
+ * // Define input type of the fuzz target. This should be always be a struct.
  * struct func_arg_type {
  *	T1 arg1;
  *	...
  *	TN argn;
  * };
  *
- * // Define the test case
- * FUZZ_TEST(func, struct func_arg_type) 
+ * // Define the test case.
+ * FUZZ_TEST(test_func, struct func_arg_type) 
  * {
- *	// arg is provided by the macro, and is of type `struct func_arg_type`
+ *      int ret;
+ *	// arg is provided by the macro, and is of type struct func_arg_type.
  *	ret = func(arg.arg1, ..., arg.argn);
- *	validate(ret);
+ *	// Validate the return value if testing for correctness.
+ *	if (ret != expected_value) {
+ *		KFUZZTEST_REPORT_BUG("Unexpected return value");
+ *	}
  * }
  */
-#define FUZZ_TEST(func, func_arg_type)                                         \
-	/* forward decls */                                                    \
+#define FUZZ_TEST(test_name, func_arg_type)                                    \
 	static ssize_t _write_callback_##func(struct file *filp,               \
 					      const char __user *buf,          \
 					      size_t len, loff_t *off);        \
-	static ssize_t _read_metadata_callback_##func(                         \
-		struct file *filp, char __user *buf, size_t len, loff_t *off); \
 	static void _fuzz_test_logic_##func(func_arg_type *arg);               \
-	/* test case struct initialization */                                  \
 	const struct kfuzztest_target __fuzz_test__##func __attribute__((      \
 		__section__(".kfuzztest_target"), __used__)) = {               \
-		.name = #func,                                                 \
+		.name = #test_name,                                            \
 		.arg_type_name = #func_arg_type,                               \
 		.write_input_cb = _write_callback_##func,                      \
-		.read_metadata_cb = _read_metadata_callback_##func             \
 	};                                                                     \
-	/* callback that simply returns the type name to the user */           \
-	static ssize_t _read_metadata_callback_##func(                         \
-		struct file *filp, char __user *buf, size_t len, loff_t *off)  \
-	{                                                                      \
-		const char *message = __fuzz_test__##func.arg_type_name;       \
-		int message_len = strlen(message);                             \
-		return simple_read_from_buffer(buf, len, off, message,         \
-					       message_len);                   \
-	}                                                                      \
-	/* user-defined write callback */                                      \
+	/* Invoked when data is written into the target's input file. */       \
 	static ssize_t _write_callback_##func(struct file *filp,               \
 					      const char __user *buf,          \
 					      size_t len, loff_t *off)         \
 	{                                                                      \
-		pr_info("[ENTER] %s\n", __FUNCTION__);                         \
 		int err;                                                       \
 		void *buffer = kmalloc(len, GFP_KERNEL);                       \
 		if (!buffer || IS_ERR(buffer))                                 \
@@ -114,9 +102,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 			return -1;                                             \
 		}                                                              \
 		func_arg_type *arg = payload;                                  \
-		/* call the user's logic on the provided arg. */               \
-		/* NOTE: define some success/failure return types? */          \
-		pr_info("invoking fuzz logic for %s\n", #func);                \
+		/* Call the user's logic on the provided written input. */     \
 		_fuzz_test_logic_##func(arg);                                  \
 		kfree(buffer);                                                 \
 		kfree(payload);                                                \
@@ -130,10 +116,6 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  */
 #define KFUZZTEST_REPORT_BUG(msg, fmt) pr_warn("bug: " #msg, fmt)
 
-/**
- * struct kfuzztest_constraint_type defines a type of constraint. The fuzzing driver
- * should be aware of these.
- */
 enum kfuzztest_constraint_type : uint8_t {
 	EXPECT_EQ = 0,
 	EXPECT_NE,
@@ -143,8 +125,14 @@ enum kfuzztest_constraint_type : uint8_t {
 };
 
 /**
- * kfuzztest_constraint defines a domain constraint for a struct variable that 
- * is taken as input for a FUZZ_TEST.
+ * Domain constraints are used to restrict the values that the fuzz driver
+ * accepts, enforcing early exit when not satisfied. Domain constraints are
+ * encoded in vmlinux under the `__kfuzztest_constraint` section. A good 
+ * fuzzing engine should be aware of these domain constraints during input 
+ * generation and mutation.
+ *
+ * struct kfuzztest_constraint defines a domain constraint for a structure
+ * field.
  *
  * @input_type: the name of the input (a struct name)
  * @field_name: the name of the field that this domain constraint applies to
@@ -153,10 +141,21 @@ enum kfuzztest_constraint_type : uint8_t {
  *	constraints
  * @type: the type of the constraint, enumerated above
  *
- * Note: if this struct is not a multiple of 64 bytes, everything breaks and
- * we get corrupted data and occasional kernel panics. To avoid this happening,
- * we enforce 64 Byte alignment and statically assert that this struct has size
- * 64 Bytes.
+ * Example usage:
+ *
+ * struct foo {
+ *	struct bar *a;
+ *	int b
+ * };
+ *
+ * FUZZ_TEST(test_name, struct foo)
+ * {
+ *	// Early exit if foo.a == NULL.
+ *	KFUZZTEST_EXPECT_NOT_NULL(foo, a);
+ *	// Early exit if foo < 23 || foo > 42
+ *	KFUZZTEST_EXPECT_IN_RANGE(foo, b, 23, 42);
+ *	// User-defined fuzz logic.
+ * }
  */
 struct kfuzztest_constraint {
 	const char *input_type;
@@ -169,19 +168,6 @@ struct kfuzztest_constraint {
 static_assert(sizeof(struct kfuzztest_constraint) == 64,
 	      "struct kfuzztest_constraint should have size 64");
 
-/**
- * __KFUZZTEST_DEFINE_CONSTRAINT - defines a fuzz test constraint linked to a given
- * argument type belonging to a fuzz test. See FUZZ_TEST above.
- *
- * @arg_type: the type of argument (a struct) without the leading "struct" in
- *	its name, which will be prepended.
- * @field: the field on which the constraint is defined.
- * @val: used for comparison constraints such as KFUZZTEST_EXPECT_NE
- * @tpe: the type of constaint that this defines
- *
- * This macro is intended for internal use. A user should opt for 
- * KFUZZTEST_EXPECT_* instead when defining fuzz test constraints.
- */
 #define __KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)      \
 	static struct kfuzztest_constraint __constraint_##arg_type##_##field \
 		__attribute__((__section__(".kfuzztest_constraint"),         \
@@ -226,6 +212,16 @@ static_assert(sizeof(struct kfuzztest_constraint) == 64,
 	if ((expected_len) != (actual_len))            \
 		return;
 
+/**
+ * Annotations express attributes about structure fields that can't be easily
+ * verified at runtime, and are intended as a hint to the fuzzing engine.
+ *
+ * For example, a char* could either be a raw byte buffer or a string, where
+ * the latter is null terminated. If a function accepts a null-terminated 
+ * string without a length and is passed an arbitrary byte buffer, we
+ * may get false positive KASAN reports, for example. However, verifying that 
+ * the char buffer is null-termined could itself trigger a memory overflow.
+ */
 enum kfuzztest_annotation_attribute : uint8_t {
 	ATTRIBUTE_LEN = 0,
 	ATTRIBUTE_STRING,
@@ -250,18 +246,17 @@ struct kfuzztest_annotation {
 		};
 
 /**
- * Annotates arg_type.field as a string
+ * Annotates a char* field as a string, which is the subset of char arrays that 
+ * are null-terminated.
  */
 #define KFUZZTEST_ANNOTATE_STRING(arg_type, field) \
 	__KFUZZTEST_ANNOTATE(arg_type, field, , ATTRIBUTE_STRING)
 
 /**
- * Annotates arg_type.field as an arrray. For example, assume that 
- * arg_type.field is of type `unsigned long *`, which could either represent
- * a pointer to a single value or an array. Using this annotation removes that
- * ambiguity.
+ * Annotates a pointer field as an array, which is a contiguous memory region
+ * containing zero or more elements of the same type.
  */
-#define KFUZZTEST_ANNOTEATE_ARRAY(arg_type, field) \
+#define KFUZZTEST_ANNOTATE_ARRAY(arg_type, field) \
 	__KFUZZTEST_ANNOTATE(arg_type, field, , ATTRIBUTE_ARRAY)
 
 /**
@@ -271,8 +266,8 @@ struct kfuzztest_annotation {
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 struct reloc_entry {
-	uintptr_t pointer; /* offset from the beginning of the payload */
-	uintptr_t value; /* difference between the pointed to address and the address itself */
+	uintptr_t pointer; /* Offset from the beginning of the payload. */
+	uintptr_t value; /* Offset between the pointer and the pointed-to address */
 };
 
 /*
@@ -292,12 +287,14 @@ static_assert(offsetof(struct reloc_table, entries) %
 	      0);
 
 /**
- * This value should be known the fuzz engine.
+ * The relocation table format encodes pointer values as a relative offset from 
+ * the location of the pointer. A relative offset of zero could indicate that 
+ * the pointer points to its own address, which is valid. We encode a null 
+ * pointer as 0xFF...FF as adding this value to any address would result in an 
+ * overflow anyways, and is therefore invalid in any other circumstance.
  */
 static const uintptr_t nullPtr = (uintptr_t)-1;
 
-/* XXX: wasn't building before without attribute unused, but it is used in
- * several locations - weird... */
 __attribute__((unused)) static void *kfuzztest_parse_input(void *input,
 							   size_t input_size)
 {

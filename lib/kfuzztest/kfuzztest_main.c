@@ -4,14 +4,12 @@
  *
  * This module is responsible for discovering and initializing all fuzz test
  * cases defined using the FUZZ_TEST() macro. It creates a debugfs interface
-* under /sys/kernel/debug/kfuzztest/ for userspace to interact with each test.
-*/
+ * under /sys/kernel/debug/kfuzztest/ for userspace to interact with each test.
+ */
 #include <linux/debugfs.h>
 #include <linux/fs.h>
 #include <linux/kfuzztest.h>
 #include <linux/printk.h>
-
-#include "kfuzztest_tests.h"
 
 extern const struct kfuzztest_target __kfuzztest_targets_start[];
 extern const struct kfuzztest_target __kfuzztest_targets_end[];
@@ -34,14 +32,12 @@ struct kfuzztest_dentry {
  * @test_dir: The top-level debugfs directory for a single test case, e.g.,
  * /sys/kernel/debug/kfuzztest/<test-name>/.
  * @input_dentry: The state for the "input" file, which is write-only.
- * @metadata_dentry: The state for the "metadata" file, which is read-only.
  *
  * Wraps all debugfs components created for a single test case.
  */
 struct kfuzztest_debugfs_state {
-	struct dentry *test_dir;
+	struct dentry *target_dir;
 	struct kfuzztest_dentry input_dentry;
-	struct kfuzztest_dentry metadata_dentry;
 };
 
 /**
@@ -50,41 +46,33 @@ struct kfuzztest_debugfs_state {
  * @debugfs_state: A statically sized array holding the state for each
  *	registered test case.
  */
-struct kfuzztest_simple_fuzzer_state {
+struct kfuzztest_state {
 	struct file_operations fops;
 	struct dentry *kfuzztest_dir;
 	struct kfuzztest_debugfs_state *debugfs_state;
 };
 
 /* Global static variable to hold all state for the module. */
-static struct kfuzztest_simple_fuzzer_state st;
-
-/*
- * Default file permissions for the debugfs entries.
- * 0222: World-writable for the 'input' file.
- * 0444: World-readable for the 'metadata' file.
- *
- * XXX: should formally define what the permissions should be on these files
- */
-const umode_t kfuzztest_flags_w = 0222;
-const umode_t kfuzztest_flags_r = 0444;
+static struct kfuzztest_state st;
 
 /**
- * kfuzztest_init - Initializes the debug filesystem for KFTF.
+ * Default file permissions for the debugfs entries.
+ * 0222: World-writable for the 'input' file.
  *
- * This function is the entry point for the KFTF module, populating the debugfs
- * that is used for IO interaction between the individual fuzzing drivers and
- * a userspace fuzzing tool like syzkaller.
+ * XXX: should formally define what the permissions should be on these files.
+ */
+const umode_t kfuzztest_flags_w = 0222;
+
+/**
+ * kfuzztest_init - Initializes the debug filesystem for KFuzzTest.
  *
  * Each registered test in the ".kfuzztest" section gets its own subdirectory
- * under "/sys/kernel/debug/kfuzztest/<test-name>" with two files:
+ * under "/sys/kernel/debug/kfuzztest/<test-name>" with one files:
  *	- input: write-only file to send input to the fuzz driver
- *	- metadata: used to read the type name that the fuzz driver expects
  *
  * Returns:
- * 0 on success.
- * -EINVAL if the number of tests exceeds KFTF_MAX_TEST_CASES
- * -ENODEV or other error codes if debugfs creation fails.
+ *	0 on success.
+ *	-ENODEV or other error codes if debugfs creation fails.
  */
 static int __init kfuzztest_init(void)
 {
@@ -100,8 +88,10 @@ static int __init kfuzztest_init(void)
 			GFP_KERNEL);
 	if (!st.debugfs_state)
 		return -ENOMEM;
+	else if (IS_ERR(st.debugfs_state))
+		return PTR_ERR(st.debugfs_state);
 
-	/* create the main "kfuzztest" directory in `/sys/kernel/debug` */
+	/* Create the main "kfuzztest" directory in /sys/kernel/debug. */
 	st.kfuzztest_dir = debugfs_create_dir("kfuzztest", NULL);
 	if (!st.kfuzztest_dir) {
 		pr_warn("KFuzzTest: could not create debugfs");
@@ -113,22 +103,21 @@ static int __init kfuzztest_init(void)
 		return PTR_ERR(st.kfuzztest_dir);
 	}
 
-	/* iterate over all discovered test cases and set up debugfs entries */
 	for (targ = __kfuzztest_targets_start; targ < __kfuzztest_targets_end;
 	     targ++, i++) {
-		/* create a directory for the discovered test case */
-		st.debugfs_state[i].test_dir =
+		/* Create debugfs directory for the target. */
+		st.debugfs_state[i].target_dir =
 			debugfs_create_dir(targ->name, st.kfuzztest_dir);
 
-		if (!st.debugfs_state[i].test_dir) {
+		if (!st.debugfs_state[i].target_dir) {
 			ret = -ENOMEM;
 			goto cleanup_failure;
-		} else if (IS_ERR(st.debugfs_state[i].test_dir)) {
-			ret = PTR_ERR(st.debugfs_state[i].test_dir);
+		} else if (IS_ERR(st.debugfs_state[i].target_dir)) {
+			ret = PTR_ERR(st.debugfs_state[i].target_dir);
 			goto cleanup_failure;
 		}
 
-		/* create "input" file for fuzz test */
+		/* Create an input file under the target's directory. */
 		st.debugfs_state[i].input_dentry.fops =
 			(struct file_operations){
 				.owner = THIS_MODULE,
@@ -136,7 +125,7 @@ static int __init kfuzztest_init(void)
 			};
 		st.debugfs_state[i].input_dentry.dentry = debugfs_create_file(
 			"input", kfuzztest_flags_w,
-			st.debugfs_state[i].test_dir, NULL,
+			st.debugfs_state[i].target_dir, NULL,
 			&st.debugfs_state[i].input_dentry.fops);
 		if (!st.debugfs_state[i].input_dentry.dentry) {
 			ret = -ENOMEM;
@@ -146,28 +135,7 @@ static int __init kfuzztest_init(void)
 			goto cleanup_failure;
 		}
 
-		st.debugfs_state[i].metadata_dentry.fops =
-			(struct file_operations){
-				.owner = THIS_MODULE,
-				.read = targ->read_metadata_cb,
-			};
-
-		/* create "metadata" file for fuzz test */
-		st.debugfs_state[i].metadata_dentry.dentry =
-			debugfs_create_file(
-				"metadata", kfuzztest_flags_r,
-				st.debugfs_state[i].test_dir, NULL,
-				&st.debugfs_state[i].metadata_dentry.fops);
-		if (!st.debugfs_state[i].metadata_dentry.dentry) {
-			ret = -ENOMEM;
-			goto cleanup_failure;
-		} else if (IS_ERR(st.debugfs_state[i].metadata_dentry.dentry)) {
-			ret = PTR_ERR(
-				st.debugfs_state[i].metadata_dentry.dentry);
-			goto cleanup_failure;
-		}
-
-		pr_info("KFuzzTest: registered %s\n", targ->name);
+		pr_info("KFuzzTest: registered target %s\n", targ->name);
 	}
 
 	return 0;
@@ -177,9 +145,6 @@ cleanup_failure:
 	return ret;
 }
 
-/**
- * kfuzztest_exit - Cleans up the module.
- */
 static void __exit kfuzztest_exit(void)
 {
 	pr_info("KFuzzTest: exiting\n");
@@ -188,6 +153,11 @@ static void __exit kfuzztest_exit(void)
 
 	debugfs_remove_recursive(st.kfuzztest_dir);
 	st.kfuzztest_dir = NULL;
+
+	if (st.debugfs_state) {
+		kfree(st.debugfs_state);
+		st.debugfs_state = NULL;
+	}
 }
 
 module_init(kfuzztest_init);
