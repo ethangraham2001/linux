@@ -1,31 +1,16 @@
-#ifndef KFTF_H
-#define KFTF_H
+#ifndef KFUZZTEST_H
+#define KFUZZTEST_H
 
 #include <linux/module.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
-MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFTF)");
+MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
 /* forward decl */
-static void *kftf_parse_input(void *input, size_t input_size);
+static void *kfuzztest_parse_input(void *input, size_t input_size);
 
-/**
- * struct kftf_test case defines a single fuzz test case. These should not
- * be created manually. Instead the user should use the FUZZ_TEST macro defined
- * below.
- * @name: The name of the test case, generally the function being fuzzed.
- * @arg_type_name: string representation of the type of argument being fuzzed,
- *	for example "struct func_arg_type"
- * @write_input_cb: Callback invoked when a write's to the test case's debugfs
- *	input file. This is the entry point for fuzzing data. It is responsible
- *	for parsing any data written to the input file and invoking the fuzzing
- *	logic. It should return the number of bytes consumed from `buf`
- * @read_metadata_cb: Callback invoked when a user reads from the test case's
- *	"metadata" debugfs file. It should simply return whatever is contained
- *	in the `arg_type_name` field.
- */
-struct kftf_test_case {
+struct kfuzztest_target {
 	const char *name;
 	const char *arg_type_name;
 	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf,
@@ -57,14 +42,13 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  *	example below.
  *
  *
- * This macro generates all of the necessary boilerplate for a KFTF test case,
- * which is placed in a dedicated ".kftf" section so that the dedicated KFTF
- * module can discover all defined tests at runtime.
+ * This macro generates all of the necessary boilerplate for a KFuzzTest driver,
+ * which is placed in a dedicated ".kfuzztest_target" section.
  *
  * For each test, this macro generates
  *	- A buffer to receive input through the debugfs entry
  *	- A mutex to protect the input buffer
- *	- A `struct kftf_test_case` instance
+ *	- A `struct kfuzztest_target` instance
  *
  * Example usagea:
  *
@@ -93,13 +77,13 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		struct file *filp, char __user *buf, size_t len, loff_t *off); \
 	static void _fuzz_test_logic_##func(func_arg_type *arg);               \
 	/* test case struct initialization */                                  \
-	const struct kftf_test_case __fuzz_test__##func                        \
-		__attribute__((__section__(".kftf_test"), __used__)) = {       \
-			.name = #func,                                         \
-			.arg_type_name = #func_arg_type,                       \
-			.write_input_cb = _write_callback_##func,              \
-			.read_metadata_cb = _read_metadata_callback_##func     \
-		};                                                             \
+	const struct kfuzztest_target __fuzz_test__##func __attribute__((      \
+		__section__(".kfuzztest_target"), __used__)) = {               \
+		.name = #func,                                                 \
+		.arg_type_name = #func_arg_type,                               \
+		.write_input_cb = _write_callback_##func,                      \
+		.read_metadata_cb = _read_metadata_callback_##func             \
+	};                                                                     \
 	/* callback that simply returns the type name to the user */           \
 	static ssize_t _read_metadata_callback_##func(                         \
 		struct file *filp, char __user *buf, size_t len, loff_t *off)  \
@@ -124,7 +108,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 			kfree(buffer);                                         \
 			return err;                                            \
 		}                                                              \
-		void *payload = kftf_parse_input(buffer, len);                 \
+		void *payload = kfuzztest_parse_input(buffer, len);            \
 		if (!payload) {                                                \
 			kfree(buffer);                                         \
 			return -1;                                             \
@@ -144,13 +128,13 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  * Reports a bug with a predictable prefix so that it can be parsed by a
  * fuzzing driver.
  */
-#define KFTF_REPORT_BUG(msg, fmt) pr_warn("bug: " #msg, fmt)
+#define KFUZZTEST_REPORT_BUG(msg, fmt) pr_warn("bug: " #msg, fmt)
 
 /**
- * struct kftf_constraint_type defines a type of constraint. The fuzzing driver
+ * struct kfuzztest_constraint_type defines a type of constraint. The fuzzing driver
  * should be aware of these.
  */
-enum kftf_constraint_type : uint8_t {
+enum kfuzztest_constraint_type : uint8_t {
 	EXPECT_EQ = 0,
 	EXPECT_NE,
 	EXPECT_LE,
@@ -159,8 +143,8 @@ enum kftf_constraint_type : uint8_t {
 };
 
 /**
- * ktft_constraint defines a domain constraint for a struct variable that is
- * taken as input for a FUZZ_TEST
+ * kfuzztest_constraint defines a domain constraint for a struct variable that 
+ * is taken as input for a FUZZ_TEST.
  *
  * @input_type: the name of the input (a struct name)
  * @field_name: the name of the field that this domain constraint applies to
@@ -174,100 +158,102 @@ enum kftf_constraint_type : uint8_t {
  * we enforce 64 Byte alignment and statically assert that this struct has size
  * 64 Bytes.
  */
-struct kftf_constraint {
+struct kfuzztest_constraint {
 	const char *input_type;
 	const char *field_name;
 	uintptr_t value1;
 	uintptr_t value2;
-	enum kftf_constraint_type type;
+	enum kfuzztest_constraint_type type;
 } __attribute__((aligned(64)));
 
-static_assert(sizeof(struct kftf_constraint) == 64,
-	      "struct kftf_constraint should have size 64");
+static_assert(sizeof(struct kfuzztest_constraint) == 64,
+	      "struct kfuzztest_constraint should have size 64");
 
 /**
- * __KFTF_DEFINE_CONSTRAINT - defines a fuzz test constraint linked to a given
+ * __KFUZZTEST_DEFINE_CONSTRAINT - defines a fuzz test constraint linked to a given
  * argument type belonging to a fuzz test. See FUZZ_TEST above.
  *
  * @arg_type: the type of argument (a struct) without the leading "struct" in
  *	its name, which will be prepended.
  * @field: the field on which the constraint is defined.
- * @val: used for comparison constraints such as KFTF_EXPECT_NE
+ * @val: used for comparison constraints such as KFUZZTEST_EXPECT_NE
  * @tpe: the type of constaint that this defines
  *
  * This macro is intended for internal use. A user should opt for 
- * KFTF_EXPECT_* instead when defining fuzz test constraints.
+ * KFUZZTEST_EXPECT_* instead when defining fuzz test constraints.
  */
-#define __KFTF_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)             \
-	static struct kftf_constraint __constraint_##arg_type##_##field        \
-		__attribute__((__section__(".kftf_constraint"), __used__)) = { \
-			.input_type = "struct " #arg_type,                     \
-			.field_name = #field,                                  \
-			.value1 = (uintptr_t)val1,                             \
-			.value2 = (uintptr_t)val2,                             \
-			.type = tpe,                                           \
+#define __KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)      \
+	static struct kfuzztest_constraint __constraint_##arg_type##_##field \
+		__attribute__((__section__(".kfuzztest_constraint"),         \
+			       __used__)) = {                                \
+			.input_type = "struct " #arg_type,                   \
+			.field_name = #field,                                \
+			.value1 = (uintptr_t)val1,                           \
+			.value2 = (uintptr_t)val2,                           \
+			.type = tpe,                                         \
 		};
 
-#define KFTF_EXPECT_EQ(arg_type, field, val) \
-	if (arg->field != val)               \
-		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ)
+#define KFUZZTEST_EXPECT_EQ(arg_type, field, val) \
+	if (arg->field != val)                    \
+		return;                           \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ)
 
-#define KFTF_EXPECT_NE(arg_type, field, val) \
-	if (arg->field == val)               \
-		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
+#define KFUZZTEST_EXPECT_NE(arg_type, field, val) \
+	if (arg->field == val)                    \
+		return;                           \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
 
-#define KFTF_EXPECT_LE(arg_type, field, val) \
-	if (arg->field > val)                \
-		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE)
+#define KFUZZTEST_EXPECT_LE(arg_type, field, val) \
+	if (arg->field > val)                     \
+		return;                           \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE)
 
-#define KFTF_EXPECT_GT(arg_type, field, val) \
-	if (arg->field <= val)               \
-		return;                      \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
+#define KFUZZTEST_EXPECT_GT(arg_type, field, val) \
+	if (arg->field <= val)                    \
+		return;                           \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
 
-#define KFTF_EXPECT_NOT_NULL(arg_type, field) \
-	KFTF_EXPECT_NE(arg_type, field, 0x0)
+#define KFUZZTEST_EXPECT_NOT_NULL(arg_type, field) \
+	KFUZZTEST_EXPECT_NE(arg_type, field, 0x0)
 
-#define KFTF_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)     \
-	if (arg->field < lower_bound || arg->field > upper_bound)           \
-		return;                                                     \
-	__KFTF_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, \
-				 EXPECT_IN_RANGE)
+#define KFUZZTEST_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound) \
+	if (arg->field < lower_bound || arg->field > upper_bound)            \
+		return;                                                      \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, lower_bound,          \
+				      upper_bound, EXPECT_IN_RANGE)
 
-#define KFTF_EXPECT_LEN(expected_len, actual_len) \
-	if ((expected_len) != (actual_len))       \
+#define KFUZZTEST_EXPECT_LEN(expected_len, actual_len) \
+	if ((expected_len) != (actual_len))            \
 		return;
 
-enum kftf_annotation_attribute : uint8_t {
+enum kfuzztest_annotation_attribute : uint8_t {
 	ATTRIBUTE_LEN = 0,
 	ATTRIBUTE_STRING,
 	ATTRIBUTE_ARRAY,
 };
 
-struct kftf_annotation {
+struct kfuzztest_annotation {
 	const char *input_type;
 	const char *field_name;
 	const char *linked_field_name;
-	enum kftf_annotation_attribute attrib;
+	enum kfuzztest_annotation_attribute attrib;
 } __attribute__((aligned(32)));
 
-#define __KFTF_ANNOTATE(arg_type, field, linked_field, attribute)              \
-	static struct kftf_annotation __annotation_##arg_type##_##field        \
-		__attribute__((__section__(".kftf_annotation"), __used__)) = { \
-			.input_type = "struct " #arg_type,                     \
-			.field_name = #field,                                  \
-			.linked_field_name = #linked_field,                    \
-			.attrib = attribute,                                   \
+#define __KFUZZTEST_ANNOTATE(arg_type, field, linked_field, attribute)       \
+	static struct kfuzztest_annotation __annotation_##arg_type##_##field \
+		__attribute__((__section__(".kfuzztest_annotation"),         \
+			       __used__)) = {                                \
+			.input_type = "struct " #arg_type,                   \
+			.field_name = #field,                                \
+			.linked_field_name = #linked_field,                  \
+			.attrib = attribute,                                 \
 		};
 
 /**
  * Annotates arg_type.field as a string
  */
-#define KFTF_ANNOTATE_STRING(arg_type, field) \
-	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_STRING)
+#define KFUZZTEST_ANNOTATE_STRING(arg_type, field) \
+	__KFUZZTEST_ANNOTATE(arg_type, field, , ATTRIBUTE_STRING)
 
 /**
  * Annotates arg_type.field as an arrray. For example, assume that 
@@ -275,14 +261,14 @@ struct kftf_annotation {
  * a pointer to a single value or an array. Using this annotation removes that
  * ambiguity.
  */
-#define KFTF_ANNOTEATE_ARRAY(arg_type, field) \
-	__KFTF_ANNOTATE(arg_type, field, , ATTRIBUTE_ARRAY)
+#define KFUZZTEST_ANNOTEATE_ARRAY(arg_type, field) \
+	__KFUZZTEST_ANNOTATE(arg_type, field, , ATTRIBUTE_ARRAY)
 
 /**
  * Annotates arg_type.field as the length of arg_type.linked_field
  */
-#define KFTF_ANNOTATE_LEN(arg_type, field, linked_field) \
-	__KFTF_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
+#define KFUZZTEST_ANNOTATE_LEN(arg_type, field, linked_field) \
+	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 struct reloc_entry {
 	uintptr_t pointer; /* offset from the beginning of the payload */
@@ -312,8 +298,8 @@ static const uintptr_t nullPtr = (uintptr_t)-1;
 
 /* XXX: wasn't building before without attribute unused, but it is used in
  * several locations - weird... */
-__attribute__((unused)) static void *kftf_parse_input(void *input,
-						      size_t input_size)
+__attribute__((unused)) static void *kfuzztest_parse_input(void *input,
+							   size_t input_size)
 {
 	size_t i;
 	void *payload_start, *out;
@@ -402,4 +388,4 @@ __attribute__((unused)) static void *kftf_parse_input(void *input,
 	return out;
 }
 
-#endif /* KFTF_H */
+#endif /* KFUZZTEST_H */

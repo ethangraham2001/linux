@@ -113,19 +113,19 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 #define KEXEC_RELOCATE_KERNEL
 #endif
 
-#define KFTF_TABLE							\
+#define KFUZZTEST_TABLE							\
 	. = ALIGN(PAGE_SIZE);						\
-	__kftf_test_case_start = .;					\
-	KEEP(*(.kftf_test));						\
-	__kftf_test_case_end = .;					\
+	__kfuzztest_targets_start = .;					\
+	KEEP(*(.kfuzztest_target));					\
+	__kfuzztest_targets_end = .;					\
 	. = ALIGN(PAGE_SIZE);						\
-	__kftf_constraint_start = .;					\
-	KEEP(*(.kftf_constraint));					\
-	__kftf_constraint_end = .;					\
+	__kfuzztest_constraints_start = .;				\
+	KEEP(*(.kfuzztest_constraint));					\
+	__kfuzztest_constraints_end = .;				\
 	. = ALIGN(PAGE_SIZE);						\
-	__kftf_annotation_start = .;					\
-	KEEP(*(.kftf_annotation));					\
-	__kftf_annotation_end = .;					\
+	__kfuzztest_annotations_start = .;				\
+	KEEP(*(.kfuzztest_annotation));					\
+	__kfuzztest_annotations_end = .;				\
 
 PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */
@@ -214,7 +214,7 @@ SECTIONS
 		CONSTRUCTORS
 		KEXEC_RELOCATE_KERNEL
 
-		KFTF_TABLE
+		KFUZZTEST_TABLE
 
 		/* rarely changed data like cpu maps */
 		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)

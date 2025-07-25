@@ -1,7 +1,7 @@
-#ifndef KFTF_TESTS_H
-#define KFTF_TESTS_H
+#ifndef KFUZZTEST_TESTS_H
+#define KFUZZTEST_TESTS_H
 
-#include <linux/kftf.h>
+#include <linux/kfuzztest.h>
 #include <linux/math.h>
 
 struct kftf_simple_arg {
@@ -30,10 +30,10 @@ static void kftf_fuzzable(char first, char second, char third)
 
 FUZZ_TEST(kftf_fuzzable, struct kftf_simple_arg)
 {
-	KFTF_EXPECT_NOT_NULL(kftf_simple_arg, first);
-	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, second, 'a', 'z');
-	KFTF_EXPECT_IN_RANGE(kftf_simple_arg, third, 'a', 'z');
+	KFUZZTEST_EXPECT_NOT_NULL(kftf_simple_arg, first);
+	KFUZZTEST_EXPECT_IN_RANGE(kftf_simple_arg, second, 'a', 'z');
+	KFUZZTEST_EXPECT_IN_RANGE(kftf_simple_arg, third, 'a', 'z');
 	kftf_fuzzable(arg->first, arg->second, arg->third);
 }
 
-#endif /* KFTF_TESTS_H */
+#endif /* KFUZZTEST_TESTS_H */
