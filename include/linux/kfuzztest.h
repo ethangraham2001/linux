@@ -7,7 +7,8 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
-static void *kfuzztest_parse_input(void *input, size_t input_size);
+static void *kfuzztest_parse_input(void *input, size_t input_size,
+				   size_t *num_regions);
 
 struct kfuzztest_target {
 	const char *name;
@@ -90,6 +91,8 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 						   size_t len, loff_t *off)    \
 	{                                                                      \
 		int err;                                                       \
+		size_t i;                                                      \
+		void *region, *regions;                                        \
 		void *buffer = kmalloc(len, GFP_KERNEL);                       \
 		if (!buffer || IS_ERR(buffer))                                 \
 			return PTR_ERR(buffer);                                \
@@ -98,16 +101,27 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 			kfree(buffer);                                         \
 			return err;                                            \
 		}                                                              \
-		void *payload = kfuzztest_parse_input(buffer, len);            \
-		if (!payload) {                                                \
+		size_t num_regions;                                            \
+		regions = kfuzztest_parse_input(buffer, len, &num_regions);    \
+		if (!regions) {                                                \
 			kfree(buffer);                                         \
 			return -1;                                             \
+		} else if (IS_ERR(regions)) {                                  \
+			kfree(buffer);                                         \
+			return PTR_ERR(regions);                               \
 		}                                                              \
-		test_arg_type *arg = payload;                                  \
+		pr_info("KFuzzTest: regions = 0x%px\n", regions);              \
+		/* The input argument is the first region. */                  \
+		test_arg_type *arg = ((void **)regions)[0];                    \
 		/* Call the user's logic on the provided written input. */     \
 		_fuzz_test_logic_##test_name(arg);                             \
 		kfree(buffer);                                                 \
-		kfree(payload);                                                \
+		for (i = 0; i < num_regions; i++) {                            \
+			region = ((void **)regions)[i];                        \
+			if (region)                                            \
+				kfree(region);                                 \
+		}                                                              \
+		kfree(regions);                                                \
 		return len;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##test_name(test_arg_type *arg)
@@ -268,24 +282,47 @@ struct kfuzztest_annotation {
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 struct reloc_entry {
-	uintptr_t pointer; /* Offset from the beginning of the payload. */
-	uintptr_t value; /* Offset between the pointer and the pointed-to address */
+	uint64_t region_id; /* Region that pointer belongs to. */
+	uint64_t region_offset; /* Offset from the beginning of the region. */
+	uint64_t value; /* Pointee tegion identifier, or (void*)-1 if NULL */
+	uint64_t padding;
 };
 
 /*
  * How many integers of padding in the relocation table between the header
  * information and the relocation entries
  */
-#define RELOC_TABLE_PADDING 2
+#define RELOC_TABLE_PADDING 7
 
 struct reloc_table {
 	int num_entries;
-	uint32_t max_alignment;
 	int padding[RELOC_TABLE_PADDING];
 	struct reloc_entry entries[];
 };
 static_assert(offsetof(struct reloc_table, entries) %
 		      sizeof(struct reloc_entry) ==
+	      0);
+
+struct reloc_region {
+	uint64_t id;
+	uint64_t start; /* Offset from the start of the payload */
+	uint64_t size;
+	uint64_t alignment;
+};
+
+/**
+ * How many `uint64_t`s of padding are required.
+ */
+#define RELOC_REGION_PADDING 3
+
+struct reloc_region_array {
+	uint64_t num_regions;
+	uint64_t padding[RELOC_REGION_PADDING];
+	struct reloc_region regions[];
+};
+
+static_assert(offsetof(struct reloc_region_array, regions) %
+		      sizeof(struct reloc_region) ==
 	      0);
 
 /**
@@ -297,94 +334,113 @@ static_assert(offsetof(struct reloc_table, entries) %
  */
 static const uintptr_t nullPtr = (uintptr_t)-1;
 
-__attribute__((unused)) static void *kfuzztest_parse_input(void *input,
-							   size_t input_size)
+__attribute__((unused)) static void *
+kfuzztest_parse_input(void *input, size_t input_size, size_t *num_regions)
 {
 	size_t i;
-	void *payload_start, *out;
+	void *payload_start;
 	uintptr_t *ptr_location;
-	size_t payload_len, alloc_size, entries_size, header_size;
+	size_t payload_len, reloc_entries_size, reloc_table_size,
+		reloc_regions_size, region_array_size;
 	struct reloc_table *rt;
 	struct reloc_entry re;
-	if (input_size > KMALLOC_MAX_SIZE)
-		return NULL;
+	struct reloc_region_array *region_array;
+	struct reloc_region reg;
+	void **allocated_regions = NULL;
 
-	if (input_size < sizeof(struct reloc_table)) {
-		pr_warn("got misformed input in %s\n", __FUNCTION__);
+	pr_info("KFuzzTest: input [ 0x%px, 0x%px ]", input,
+		(char *)input + input_size);
+	if (input_size <
+	    sizeof(struct reloc_table) + sizeof(struct reloc_region_array)) {
+		pr_warn("KFuzzTest: input was not well-formed");
 		return NULL;
 	}
 	rt = input;
 
 	if (check_mul_overflow(rt->num_entries, sizeof(struct reloc_entry),
-			       &entries_size))
+			       &reloc_entries_size))
 		return NULL;
-	header_size = offsetof(struct reloc_table, entries) + entries_size;
-	if (header_size > input_size)
+	reloc_table_size =
+		offsetof(struct reloc_table, entries) + reloc_entries_size;
+	pr_info("reloc_table_size: 0x%lx\n", reloc_table_size);
+	if (reloc_table_size > input_size)
+		return NULL;
+	pr_info("num reloc entries: %d\n", rt->num_entries);
+
+	region_array =
+		(struct reloc_region_array *)((char *)input + reloc_table_size);
+	if (check_mul_overflow(region_array->num_regions,
+			       sizeof(struct reloc_region),
+			       &reloc_regions_size))
 		return NULL;
 
-	payload_start = (char *)input + header_size;
+	region_array_size = offsetof(struct reloc_region_array, regions) +
+			    reloc_regions_size;
+	pr_info("region_array_size: 0x%lx", region_array_size);
+	pr_info("num regions = %llu", region_array->num_regions);
+	if (reloc_table_size + region_array_size > input_size)
+		return NULL;
+
+	allocated_regions =
+		kzalloc(region_array->num_regions * sizeof(void *), GFP_KERNEL);
+	if (!allocated_regions)
+		return NULL;
+
+	payload_start = (char *)region_array + region_array_size;
 	if (payload_start >= input + input_size)
-		return NULL;
-
-	if (!is_power_of_2(rt->max_alignment) || rt->max_alignment > PAGE_SIZE)
 		return NULL;
 
 	payload_len = input_size - (payload_start - input);
 
-	/*
-         * Check input for out-of-bounds pointers before before allocating
-         * aligned output buffer.
-         */
-	for (i = 0; i < rt->num_entries; i++) {
-		re = rt->entries[i];
-		if (re.pointer > payload_len ||
-		    re.pointer + sizeof(uintptr_t) > payload_len)
-			return NULL;
+	pr_info("KFuzzTest: allocating regions");
+	/* Allocate regions, and copy data in. */
+	for (i = 0; i < region_array->num_regions; i++) {
+		reg = region_array->regions[i];
 
-		if (re.value == nullPtr)
-			continue;
+		/* kzalloc guarantees 8-byte alignment, which is enough. */
+		allocated_regions[i] = kzalloc(reg.size, GFP_KERNEL);
+		if (!allocated_regions[i])
+			goto fail;
 
-		/* We don't know the size of the data that is being pointed and
-		 * therefor cannot make any stricter assertions. For example,
-		 * if we enforce:
-		 *	re.pointer + re.value + sizeof(uintptr_t) < payload_len
-		 * then we cannot write values with bytesize < 8.
-		 */
-		if (re.pointer + re.value >= payload_len)
-			return NULL;
+		pr_info("copying from %px to %px with size 0x%llx",
+			(char *)payload_start + reg.start, allocated_regions[i],
+			reg.size);
+
+		memcpy(allocated_regions[i], (char *)payload_start + reg.start,
+		       reg.size);
+
+		pr_info("KFuzzTest: allocated region_%llu of size %llu\n",
+			reg.id, reg.size);
 	}
 
-	/*
-         * To guarantee correct alignment of structures within the payload, we
-         * allocate a new buffer that is aligned to the next power of two
-         * greater than either the size of the payload + 1 or the maximum
-         * alignment of the nested structures. We add one to the payload length
-         * and call kzalloc to ensure that the payload is padded by trailing
-         * zeros to prevent false-positives on non-null terminated strings.
-         */
-	alloc_size =
-		MAX(roundup_pow_of_two(payload_len + 1), rt->max_alignment);
-	out = kzalloc(alloc_size, GFP_KERNEL);
-	if (!out)
-		return NULL;
-
-	memcpy(out, payload_start, payload_len);
-
-	/*
-	 * Iterate through entries in the relocation table and patch the
-	 * pointers.
-	 */
+	/* Patch pointers. */
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
-		ptr_location = (uintptr_t *)(out + re.pointer);
+		ptr_location =
+			(uintptr_t *)((char *)allocated_regions[re.region_id] +
+				      re.region_offset);
 		if (re.value == nullPtr) {
 			*ptr_location = (uintptr_t)NULL;
 		} else {
-			*ptr_location = (uintptr_t)ptr_location + re.value;
+			*ptr_location = (uintptr_t)allocated_regions[re.value];
+			pr_info("KFuzzTest: pointer at offset %llu in region %llu pointer to region %llu (0x%px)",
+				re.region_offset, re.region_id, re.value,
+				(void *)*ptr_location);
 		}
 	}
 
-	return out;
+	if (num_regions)
+		*num_regions = region_array->num_regions;
+	return allocated_regions;
+
+fail:
+	if (!allocated_regions)
+		return NULL;
+	for (i = 0; i < region_array->num_regions; i++) {
+		if (allocated_regions[i])
+			kfree(allocated_regions[i]);
+	}
+	return NULL;
 }
 
 #endif /* KFUZZTEST_H */
