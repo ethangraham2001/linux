@@ -282,21 +282,21 @@ struct kfuzztest_annotation {
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 struct reloc_entry {
-	uint64_t region_id; /* Region that pointer belongs to. */
-	uint64_t region_offset; /* Offset from the beginning of the region. */
-	uint64_t value; /* Pointee tegion identifier, or (void*)-1 if NULL */
-	uint64_t padding;
+	uint32_t region_id; /* Region that pointer belongs to. */
+	uint32_t region_offset; /* Offset from the beginning of the region. */
+	uint32_t value; /* Pointee tegion identifier, or (void*)-1 if NULL */
+	uint32_t padding;
 };
 
 /*
  * How many integers of padding in the relocation table between the header
  * information and the relocation entries
  */
-#define RELOC_TABLE_PADDING 7
+#define RELOC_TABLE_PADDING 3
 
 struct reloc_table {
-	int num_entries;
-	int padding[RELOC_TABLE_PADDING];
+	uint32_t num_entries;
+	uint32_t padding[RELOC_TABLE_PADDING];
 	struct reloc_entry entries[];
 };
 static_assert(offsetof(struct reloc_table, entries) %
@@ -304,20 +304,23 @@ static_assert(offsetof(struct reloc_table, entries) %
 	      0);
 
 struct reloc_region {
-	uint64_t id;
-	uint64_t start; /* Offset from the start of the payload */
-	uint64_t size;
-	uint64_t alignment;
+	uint32_t id;
+	uint32_t start; /* Offset from the start of the payload */
+	uint32_t size;
+	uint32_t alignment;
 };
+
+enum reloc_mode : uint32_t { DISTINCT = 0, POISONED };
 
 /**
  * How many `uint64_t`s of padding are required.
  */
-#define RELOC_REGION_PADDING 3
+#define RELOC_REGION_PADDING 2
 
 struct reloc_region_array {
-	uint64_t num_regions;
-	uint64_t padding[RELOC_REGION_PADDING];
+	uint32_t num_regions;
+	enum reloc_mode mode;
+	uint32_t padding[RELOC_REGION_PADDING];
 	struct reloc_region regions[];
 };
 
