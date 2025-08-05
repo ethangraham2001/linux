@@ -73,13 +73,6 @@ reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
 				    struct reloc_table *rt, void *payload_start,
 				    void *payload_end, void **data_ret);
 
-/**
- * Release the relocated data, freeing the initial buffer that was copied from
- * user space.
- */
-void __kfuzztest_release_relocated(struct reloc_region_array *regions,
-				   reloc_handle_t handle);
-
 struct kfuzztest_target {
 	const char *name;
 	const char *arg_type_name;
@@ -172,24 +165,28 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		else if (IS_ERR(buffer))                                       \
 			return PTR_ERR(buffer);                                \
 		err = write_input_cb_common(filp, buf, len, off, buffer, len); \
-		if (err != 0) {                                                \
-			kfree(buffer);                                         \
-			return err;                                            \
-		}                                                              \
+		if (err != 0)                                                  \
+			goto fail;                                             \
 		err = __kfuzztest_parse_input(buffer, len, &regions, &rt,      \
 					      &payload_start, &payload_end);   \
 		if (err)                                                       \
-			return err;                                            \
+			goto fail;                                             \
 		/* Frees `buffer` on failure. */                               \
 		relocated = __kfuzztest_relocate(regions, rt, payload_start,   \
 						 payload_end, (void *)&arg);   \
-		if (!relocated)                                                \
-			return -EINVAL;                                        \
-		/* Call the user's logic on the provided written input. */     \
+		if (!relocated) {                                              \
+			err = -EINVAL;                                         \
+			goto fail;                                             \
+		}                                                              \
+		pr_info("kfuzztest: success, invoking fuzz logic\n");          \
+		/* Call the fuzz logic on the provided written input. */       \
 		_fuzz_test_logic_##test_name(arg);                             \
-		/* Frees `buffer`. */                                          \
-		__kfuzztest_release_relocated(regions, relocated);             \
+		kfree(buffer);                                                 \
 		return len;                                                    \
+fail:                                                                          \
+		pr_info("kfuzztest: a failure occured");                       \
+		kfree(buffer);                                                 \
+		return err;                                                    \
 	}                                                                      \
 	static void _fuzz_test_logic_##test_name(test_arg_type *arg)
 

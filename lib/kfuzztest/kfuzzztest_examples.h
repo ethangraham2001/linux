@@ -31,6 +31,9 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 
 	volatile char c;
 	pr_info("a = [%px, %px)", arg->a, arg->a + arg->a_len);
+	pr_info("b = [%px, %px)", arg->b, arg->b + arg->b_len);
+	pr_info("a_len = %zu", arg->a_len);
+	pr_info("b_len = %zu", arg->b_len);
 	/* Buffer overflow out of a bounds. This should be caught by KASAN. */
 	for (size_t i = 0; i <= arg->a_len; i++)
 		c = arg->a[i];
