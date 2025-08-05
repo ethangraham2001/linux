@@ -14,12 +14,9 @@ struct reloc_region {
 	uint32_t padding;
 };
 
-enum reloc_mode { DISTINCT = 0, POISONED };
-
 struct reloc_region_array {
 	uint32_t num_regions;
-	enum reloc_mode mode;
-	uint32_t padding[2];
+	uint32_t padding[3];
 	struct reloc_region regions[];
 };
 
@@ -36,7 +33,8 @@ struct reloc_entry {
 
 struct reloc_table {
 	uint32_t num_entries;
-	uint32_t padding[3];
+	uint32_t payloadOffset; /* Offset from start of relocation table */
+	uint32_t padding[2];
 	struct reloc_entry entries[];
 };
 static_assert(offsetof(struct reloc_table, entries) %
