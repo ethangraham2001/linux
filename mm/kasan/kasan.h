@@ -516,25 +516,6 @@ bool kasan_byte_accessible(const void *addr);
 
 #endif /* CONFIG_KASAN_HW_TAGS */
 
-#ifdef CONFIG_KASAN_GENERIC
-
-/**
- * kasan_poison_last_granule - mark the last granule of the memory range as
- * inaccessible
- * @address: range start address, must be aligned to KASAN_GRANULE_SIZE
- * @size: range size
- *
- * This function is only available for the generic mode, as it's the only mode
- * that has partially poisoned memory granules.
- */
-void kasan_poison_last_granule(const void *address, size_t size);
-
-#else /* CONFIG_KASAN_GENERIC */
-
-static inline void kasan_poison_last_granule(const void *address, size_t size) { }
-
-#endif /* CONFIG_KASAN_GENERIC */
-
 #ifndef kasan_arch_is_ready
 static inline bool kasan_arch_is_ready(void)	{ return true; }
 #elif !defined(CONFIG_KASAN_GENERIC) || !defined(CONFIG_KASAN_OUTLINE)

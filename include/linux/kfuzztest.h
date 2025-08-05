@@ -141,7 +141,8 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 	static ssize_t _write_callback_##test_name(struct file *filp,          \
 						   const char __user *buf,     \
 						   size_t len, loff_t *off);   \
-	static void _fuzz_test_logic_##test_name(test_arg_type *arg);          \
+	static void _fuzz_test_logic_##test_name(                              \
+		test_arg_type *arg, struct reloc_region_array *regions);       \
 	const struct kfuzztest_target __fuzz_test__##test_name __attribute__(( \
 		__section__(".kfuzztest_target"), __used__)) = {               \
 		.name = #test_name,                                            \
@@ -180,7 +181,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		}                                                              \
 		pr_info("kfuzztest: success, invoking fuzz logic\n");          \
 		/* Call the fuzz logic on the provided written input. */       \
-		_fuzz_test_logic_##test_name(arg);                             \
+		_fuzz_test_logic_##test_name(arg, regions);                    \
 		kfree(buffer);                                                 \
 		return len;                                                    \
 fail:                                                                          \
@@ -188,7 +189,8 @@ fail:                                                                          \
 		kfree(buffer);                                                 \
 		return err;                                                    \
 	}                                                                      \
-	static void _fuzz_test_logic_##test_name(test_arg_type *arg)
+	static void _fuzz_test_logic_##test_name(                              \
+		test_arg_type *arg, struct reloc_region_array *regions)
 
 /**
  * Reports a bug with a predictable prefix so that it can be parsed by a
@@ -354,8 +356,8 @@ struct kfuzztest_annotation {
  */
 #define KFUZZTEST_REGIONID_NULL U32_MAX
 
-/* Performs some input validation, and returns the rerloc region array, and 
- * reloc table. 
- */
+/* The size of a region if it exists, or 0 if it does not. */
+#define KFUZZTEST_REGION_SIZE(n) \
+	((n) < (regions->num_regions) ? (regions->regions[n].size) : 0)
 
 #endif /* KFUZZTEST_H */

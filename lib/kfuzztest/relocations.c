@@ -3,32 +3,51 @@
 
 #define POISON_REGION_END 0xFC
 
+/**
+ * Poison the half open interval [start, end], where end should be 8-byte 
+ * aligned if it is not, then we cannot guarantee that the whole range will
+ * be poisoned.
+ *
+ * If start is not 8-byte-aligned, the remaining bytes in its 8-byte granule
+ * can only be poisoned if CONFIG_KASAN_GENERIC is enabled.
+ */
 static void __kfuzztest_poison_range(void *start, void *end)
 {
 	uintptr_t start_addr = (uintptr_t)start;
-	uintptr_t end_addr = (uintptr_t)end;
-	uintptr_t poison_start;
-	uintptr_t poison_end;
+	uintptr_t end_addr = ALIGN_DOWN((uintptr_t)end, 0x8);
 
-	/*
-	 * Calculate the largest region within [start, end) that is aligned
-	 * to KASAN_GRANULE_SIZE. This is the only part we can safely poison.
-	 */
-	poison_start = ALIGN(start_addr, 0x8);
-	poison_end = ALIGN_DOWN(end_addr, 0x8);
+	uintptr_t poison_body_start;
+	uintptr_t poison_body_end;
+	uintptr_t head_granule_start;
+	size_t head_prefix_size;
 
-	/* If there's no fully-aligned granule in the range, we can't do anything. */
-	if (poison_start >= poison_end)
+	if (start_addr >= end_addr)
 		return;
 
-	/*
-	 * Poison the aligned region. KASAN_SLAB_REDZONE is a suitable
-	 * poison value for padding that should never be accessed.
-	 */
-	kasan_poison((void *)poison_start, poison_end - poison_start,
-		     POISON_REGION_END, false);
-	pr_info("kfuzztest: poisoned [%px, %px)", (void *)poison_start,
-		(void *)poison_end);
+	head_granule_start = ALIGN_DOWN(start_addr, 0x8);
+	head_prefix_size = start_addr - head_granule_start;
+
+	if (IS_ENABLED(CONFIG_KASAN_GENERIC) && head_prefix_size > 0) {
+		kasan_poison_last_granule((void *)head_granule_start,
+					  head_prefix_size);
+		pr_info("kfuzztest: poisoned [%px, %px)",
+			(void *)head_granule_start + head_prefix_size,
+			(void *)head_granule_start + 8);
+	}
+
+	poison_body_start = ALIGN(start_addr, 0x8);
+	poison_body_end = ALIGN_DOWN(end_addr, 0x8);
+
+	pr_info("kfuzztest: want to additionally poison [%px, %px)",
+		(void *)poison_body_start, (void *)poison_body_end);
+	if (poison_body_start < poison_body_end) {
+		kasan_poison((void *)poison_body_start,
+			     poison_body_end - poison_body_start,
+			     POISON_REGION_END, false);
+
+		pr_info("kfuzztest: poisoned [%px, %px)",
+			(void *)poison_body_start, (void *)poison_body_end);
+	}
 }
 
 reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,

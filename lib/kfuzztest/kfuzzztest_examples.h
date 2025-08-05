@@ -24,6 +24,9 @@ struct nested_buffers {
  */
 FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 {
+	u32 a_size;
+	u32 b_size;
+
 	KFUZZTEST_EXPECT_NOT_NULL(some_input, a);
 	KFUZZTEST_EXPECT_NOT_NULL(some_input, b);
 	KFUZZTEST_ANNOTATE_LEN(some_input, a_len, a);
@@ -34,8 +37,13 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 	pr_info("b = [%px, %px)", arg->b, arg->b + arg->b_len);
 	pr_info("a_len = %zu", arg->a_len);
 	pr_info("b_len = %zu", arg->b_len);
+
+	a_size = KFUZZTEST_REGION_SIZE(1);
+	b_size = KFUZZTEST_REGION_SIZE(2);
+	pr_info("actual sizes = %u, %u", a_size, b_size);
+
 	/* Buffer overflow out of a bounds. This should be caught by KASAN. */
-	for (size_t i = 0; i <= arg->a_len; i++)
+	for (size_t i = 0; i <= a_size; i++)
 		c = arg->a[i];
 }
 
