@@ -16,6 +16,8 @@ __kfuzztest_release_relocated_distinct(struct reloc_region_array *regions,
 		if (allocations[i])
 			kfree(allocations[i]);
 	kfree((void *)handle);
+	/* Regions points to the beginning of the user buffer. */
+	kfree((void *)regions);
 }
 
 void __kfuzztest_release_relocated(struct reloc_region_array *regions,
@@ -33,10 +35,12 @@ void __kfuzztest_release_relocated(struct reloc_region_array *regions,
 	}
 }
 
+#define POISON_REGION_END 0xFC
+
 static reloc_handle_t
 __kfuzztest_relocate_poisoned(struct reloc_region_array *regions,
-			      struct reloc_table *rt, void *payload,
-			      void **data_ret)
+			      struct reloc_table *rt, void *payload_start,
+			      void *payload_end, void **data_ret)
 {
 	size_t i;
 	struct reloc_region reg, src, dst;
@@ -44,32 +48,40 @@ __kfuzztest_relocate_poisoned(struct reloc_region_array *regions,
 	struct reloc_entry re;
 	void *ptr;
 
-	/* Poison the padding between regions */
-	for (i = 0; i < regions->num_regions; i++) {
-		reg = regions->regions[i];
-		ptr = payload + reg.start + reg.size;
-		// TODO: poison this range. Figure out import for kasan.h.
-	}
-
-	// TODO: failure when the region points out of bounds.
-
-	/* Patch pointers */
+	/* Patch pointers. */
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
-		src = regions->regions[re.region_id];
-		ptr_location = (uintptr_t *)(char *)payload + src.start +
-			       re.region_offset;
+		if (re.region_id > regions->num_regions)
+			goto fail;
 
-		if (re.value == nullPtr) {
+		src = regions->regions[re.region_id];
+		ptr_location = (uintptr_t *)(char *)payload_start + src.start +
+			       re.region_offset;
+		if ((char *)ptr_location >= (char *)payload_end)
+			goto fail;
+
+		if (re.value == KFUZZTEST_REGIONID_NULL) {
 			*ptr_location = (uintptr_t)NULL;
 		} else {
 			if (re.value >= regions->num_regions)
 				goto fail;
 			dst = regions->regions[re.value];
-			*ptr_location = (uintptr_t)(char *)payload + dst.start;
+			*ptr_location =
+				(uintptr_t)(char *)payload_start + dst.start;
 		}
 	}
 
+	/* Poison the padding between regions. */
+	for (i = 0; i < regions->num_regions; i++) {
+		reg = regions->regions[i];
+		/* Points to the 8 bytes of padding following every region. */
+		ptr = payload_start + reg.start + reg.size;
+		if ((char *)ptr + 8 >= (char *)payload_end)
+			goto fail;
+		kasan_poison(ptr, 8, POISON_REGION_END, false);
+	}
+
+	/* Returned as `reloc_handle_t`. */
 	return regions;
 fail:
 	__kfuzztest_release_relocated_poisoned(regions);
@@ -78,8 +90,8 @@ fail:
 
 static reloc_handle_t
 __kfuzztest_relocate_distinct(struct reloc_region_array *regions,
-			      struct reloc_table *rt, void *payload,
-			      void **data_ret)
+			      struct reloc_table *rt, void *payload_start,
+			      void *payload_end, void **data_ret)
 {
 	void **allocated_regions;
 	size_t i;
@@ -94,36 +106,34 @@ __kfuzztest_relocate_distinct(struct reloc_region_array *regions,
 
 	for (i = 0; i < regions->num_regions; i++) {
 		reg = regions->regions[i];
+		if (reg.size > KMALLOC_MAX_SIZE)
+			goto fail;
 
 		/* kzalloc guarantees 8-byte alignment, which is enough. */
 		allocated_regions[i] = kzalloc(reg.size, GFP_KERNEL);
 		if (!allocated_regions[i])
 			goto fail;
 
-		pr_info("copying from %px to %px with size 0x%x",
-			(char *)payload + reg.start, allocated_regions[i],
-			reg.size);
-
-		memcpy(allocated_regions[i], (char *)payload + reg.start,
+		memcpy(allocated_regions[i], (char *)payload_start + reg.start,
 		       reg.size);
-
-		pr_info("KFuzzTest: allocated region_%zu of size %u\n", i,
-			reg.size);
 	}
 
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
+		if (re.value >= regions->num_regions)
+			goto fail;
+
 		ptr_location =
 			(uintptr_t *)((char *)allocated_regions[re.region_id] +
 				      re.region_offset);
-		if (re.value == nullPtr) {
+
+		if ((char *)ptr_location >= (char *)payload_end)
+			goto fail;
+
+		if (re.value == KFUZZTEST_REGIONID_NULL)
 			*ptr_location = (uintptr_t)NULL;
-		} else {
+		else
 			*ptr_location = (uintptr_t)allocated_regions[re.value];
-			pr_info("KFuzzTest: pointer at offset %u in region %u pointer to region %u (0x%px)",
-				re.region_offset, re.region_id, re.value,
-				(void *)*ptr_location);
-		}
 	}
 
 	if (data_ret)
@@ -131,26 +141,21 @@ __kfuzztest_relocate_distinct(struct reloc_region_array *regions,
 	return allocated_regions;
 
 fail:
-	if (!allocated_regions)
-		return NULL;
-	for (i = 0; i < regions->num_regions; i++) {
-		if (allocated_regions[i])
-			kfree(allocated_regions[i]);
-	}
+	__kfuzztest_release_relocated_distinct(regions, allocated_regions);
 	return NULL;
 }
 
 reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
-				    struct reloc_table *rt, void *payload,
-				    void **data_ret)
+				    struct reloc_table *rt, void *payload_start,
+				    void *payload_end, void **data_ret)
 {
 	switch (regions->mode) {
 	case DISTINCT:
-		return __kfuzztest_relocate_distinct(regions, rt, payload,
-						     data_ret);
+		return __kfuzztest_relocate_distinct(regions, rt, payload_start,
+						     payload_end, data_ret);
 	case POISONED:
-		return __kfuzztest_relocate_poisoned(regions, rt, payload,
-						     data_ret);
+		return __kfuzztest_relocate_poisoned(regions, rt, payload_start,
+						     payload_end, data_ret);
 	default:
 		return ERR_PTR(-EINVAL);
 	}

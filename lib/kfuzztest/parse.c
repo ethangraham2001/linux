@@ -1,0 +1,51 @@
+#include <linux/kfuzztest.h>
+
+int __kfuzztest_parse_input(void *input, size_t input_size,
+			    struct reloc_region_array **ret_regions,
+			    struct reloc_table **ret_reloc_table,
+			    void **ret_payload_start, void **ret_payload_end)
+{
+	int err;
+	void *payload_end, *payload_start;
+	size_t reloc_entries_size, regions_size;
+	struct reloc_table *rt;
+	struct reloc_region_array *regions;
+
+	if (input_size <
+	    sizeof(struct reloc_region_array) + sizeof(struct reloc_table))
+		return -EINVAL;
+
+	payload_end = (char *)input + input_size;
+
+	regions = input;
+	regions_size = sizeof(struct reloc_region_array) +
+		       regions->num_regions * sizeof(struct reloc_region);
+
+	rt = (struct reloc_table *)((char *)regions + regions_size);
+	if ((char *)rt > (char *)payload_end) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	reloc_entries_size = sizeof(struct reloc_table) +
+			     rt->num_entries * sizeof(struct reloc_entry);
+	if ((char *)rt + reloc_entries_size > (char *)payload_end) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	payload_start = (char *)(rt->entries + rt->num_entries);
+	if ((char *)payload_start > (char *)payload_end) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	*ret_regions = regions;
+	*ret_reloc_table = rt;
+	*ret_payload_start = payload_start;
+	*ret_payload_end = payload_end;
+	return 0;
+fail:
+	kfree(input);
+	return err;
+}

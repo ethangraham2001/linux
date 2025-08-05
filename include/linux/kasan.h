@@ -126,6 +126,8 @@ static __always_inline bool kasan_unpoison_pages(struct page *page,
 	return false;
 }
 
+void kasan_poison(const void *addr, size_t size, u8 value, bool init);
+
 void __kasan_poison_slab(struct slab *slab);
 static __always_inline void kasan_poison_slab(struct slab *slab)
 {

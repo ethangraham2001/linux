@@ -2,20 +2,19 @@
 #define KFUZZTEST_H
 
 #include <linux/module.h>
-#include <linux/kasan.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
 struct reloc_region {
-	uint32_t start; /* Offset from the start of the payload */
+	uint32_t start; /* Offset from the start of the payload. */
 	uint32_t size;
 	uint32_t alignment;
 	uint32_t padding;
 };
 
-enum reloc_mode : uint32_t { DISTINCT = 0, POISONED };
+enum reloc_mode { DISTINCT = 0, POISONED };
 
 struct reloc_region_array {
 	uint32_t num_regions;
@@ -23,6 +22,10 @@ struct reloc_region_array {
 	uint32_t padding[2];
 	struct reloc_region regions[];
 };
+
+static_assert(offsetof(struct reloc_region_array, regions) %
+		      sizeof(struct reloc_region) ==
+	      0);
 
 struct reloc_entry {
 	uint32_t region_id; /* Region that pointer belongs to. */
@@ -40,20 +43,42 @@ static_assert(offsetof(struct reloc_table, entries) %
 		      sizeof(struct reloc_entry) ==
 	      0);
 
-static_assert(offsetof(struct reloc_region_array, regions) %
-		      sizeof(struct reloc_region) ==
-	      0);
-
+/**
+ * Internal handle used for releasing resources, returned to the caller of
+ * __kfuzztest_relocate.
+ */
 typedef void *reloc_handle_t;
 
-__attribute__((unused)) static int __kfuzztest_parse_input(
-	void *input, size_t input_size, struct reloc_region_array **ret_regions,
-	struct reloc_table **ret_reloc_table, void **ret_payload);
+/**
+ * Parses a binary input of size input_size. Input should be a pointer to a 
+ * heap-allocated buffer, and it's ownership is transferred to this function
+ * on call.
+ * @input: a heap-allocated buffer (ownership transferred).
+ * @input_size: the byte-length of input
+ * @ret_regions: return pointer to the relocation region array
+ * @ret_reloc_table: return pointer to the relocation table
+ * @ret_payload_start: return pointer to the start of payload the data
+ * @ret_payload_end: return pointer to the end of the payload data, i.e., the 
+ *	first address that is out of the bounds of the payload.
+ *
+ * @return 0 on success, or an error code.
+ */
+int __kfuzztest_parse_input(void *input, size_t input_size,
+			    struct reloc_region_array **ret_regions,
+			    struct reloc_table **ret_reloc_table,
+			    void **ret_payload_start, void **ret_payload_end);
 
+/**
+ * Relocates a parsed input into kernel memory.
+ */
 reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
-				    struct reloc_table *rt, void *payload,
-				    void **data_ret);
+				    struct reloc_table *rt, void *payload_start,
+				    void *payload_end, void **data_ret);
 
+/**
+ * Release the relocated data, freeing the initial buffer that was copied from
+ * user space.
+ */
 void __kfuzztest_release_relocated(struct reloc_region_array *regions,
 				   reloc_handle_t handle);
 
@@ -140,7 +165,7 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 		int err;                                                       \
 		struct reloc_region_array *regions;                            \
 		struct reloc_table *rt;                                        \
-		void *payload, *relocated;                                     \
+		void *payload_start, *payload_end, *relocated;                 \
 		test_arg_type *arg;                                            \
                                                                                \
 		void *buffer = kmalloc(len, GFP_KERNEL);                       \
@@ -154,20 +179,17 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
 			return err;                                            \
 		}                                                              \
 		err = __kfuzztest_parse_input(buffer, len, &regions, &rt,      \
-					      &payload);                       \
-		if (err) {                                                     \
-			kfree(buffer);                                         \
+					      &payload_start, &payload_end);   \
+		if (err)                                                       \
 			return err;                                            \
-		}                                                              \
-		relocated = __kfuzztest_relocate(regions, rt, payload,         \
-						 (void *)&arg);                \
-		if (!relocated) {                                              \
-			kfree(buffer);                                         \
+		/* Frees `buffer` on failure. */                               \
+		relocated = __kfuzztest_relocate(regions, rt, payload_start,   \
+						 payload_end, (void *)&arg);   \
+		if (!relocated)                                                \
 			return -EINVAL;                                        \
-		}                                                              \
 		/* Call the user's logic on the provided written input. */     \
 		_fuzz_test_logic_##test_name(arg);                             \
-		/* XXX: buffer leaks in distinct mode. */                      \
+		/* Frees `buffer`. */                                          \
 		__kfuzztest_release_relocated(regions, relocated);             \
 		return len;                                                    \
 	}                                                                      \
@@ -332,51 +354,13 @@ struct kfuzztest_annotation {
  * The relocation table format encodes pointer values as a relative offset from 
  * the location of the pointer. A relative offset of zero could indicate that 
  * the pointer points to its own address, which is valid. We encode a null 
- * pointer as 0xFF...FF as adding this value to any address would result in an 
+ * pointer as 0xFFFFFFFF as adding this value to any address would result in an 
  * overflow anyways, and is therefore invalid in any other circumstance.
  */
-static const uintptr_t nullPtr = (uint32_t)-1;
+#define KFUZZTEST_REGIONID_NULL U32_MAX
 
-/* Performs some input validation before relocating data. */
-__attribute__((unused)) static int __kfuzztest_parse_input(
-	void *input, size_t input_size, struct reloc_region_array **ret_regions,
-	struct reloc_table **ret_reloc_table, void **ret_payload)
-{
-	void *input_end, *payload_start;
-	size_t reloc_entries_size, regions_size;
-	struct reloc_table *rt;
-	struct reloc_region_array *regions;
-
-	if (input_size <
-	    sizeof(struct reloc_region_array) + sizeof(struct reloc_table))
-		return -EINVAL;
-
-	input_end = (char *)input + input_size;
-
-	regions = input;
-	regions_size = sizeof(struct reloc_region_array) +
-		       regions->num_regions * sizeof(struct reloc_region);
-
-	rt = (struct reloc_table *)((char *)regions + regions_size);
-	if ((char *)rt > (char *)input_end)
-		return -EINVAL;
-
-	reloc_entries_size = sizeof(struct reloc_table) +
-			     rt->num_entries * sizeof(struct reloc_entry);
-	if ((char *)rt + reloc_entries_size > (char *)input_end)
-		return -EINVAL;
-
-	payload_start = (char *)(rt->entries + rt->num_entries);
-	if ((char *)payload_start > (char *)input_end)
-		return -EINVAL;
-
-	if (ret_regions)
-		*ret_regions = regions;
-	if (ret_reloc_table)
-		*ret_reloc_table = rt;
-	if (ret_payload)
-		*ret_payload = payload_start;
-	return 0;
-}
+/* Performs some input validation, and returns the rerloc region array, and 
+ * reloc table. 
+ */
 
 #endif /* KFUZZTEST_H */
