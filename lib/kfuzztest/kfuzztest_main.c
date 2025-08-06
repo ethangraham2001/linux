@@ -11,8 +11,6 @@
 #include <linux/kfuzztest.h>
 #include <linux/printk.h>
 
-#include "kfuzzztest_examples.h"
-
 extern const struct kfuzztest_target __kfuzztest_targets_start[];
 extern const struct kfuzztest_target __kfuzztest_targets_end[];
 
