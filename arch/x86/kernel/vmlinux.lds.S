@@ -113,6 +113,7 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 #define KEXEC_RELOCATE_KERNEL
 #endif
 
+#ifdef CONFIG_KFUZZTEST
 #define KFUZZTEST_TABLE							\
 	. = ALIGN(PAGE_SIZE);						\
 	__kfuzztest_targets_start = .;					\
@@ -125,7 +126,11 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 	. = ALIGN(PAGE_SIZE);						\
 	__kfuzztest_annotations_start = .;				\
 	KEEP(*(.kfuzztest_annotation));					\
-	__kfuzztest_annotations_end = .;				\
+	__kfuzztest_annotations_end = .;
+
+#else /* CONFIG_KFUZZTEST */
+#define KFUZZTEST_TABLE
+#endif /* CONFIG_KFUZZTEST */
 
 PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */
