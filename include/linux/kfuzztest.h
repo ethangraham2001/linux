@@ -10,36 +10,24 @@ MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 struct reloc_region {
 	uint32_t start; /* Offset from the start of the payload. */
 	uint32_t size;
-	uint32_t alignment;
-	uint32_t padding;
 };
 
 struct reloc_region_array {
 	uint32_t num_regions;
-	uint32_t padding[3];
 	struct reloc_region regions[];
 };
-
-static_assert(offsetof(struct reloc_region_array, regions) %
-		      sizeof(struct reloc_region) ==
-	      0);
 
 struct reloc_entry {
 	uint32_t region_id; /* Region that pointer belongs to. */
 	uint32_t region_offset; /* Offset from the beginning of the region. */
 	uint32_t value; /* Pointee tegion identifier, or (void*)-1 if NULL */
-	uint32_t padding;
 };
 
 struct reloc_table {
 	uint32_t num_entries;
 	uint32_t payloadOffset; /* Offset from start of relocation table */
-	uint32_t padding[2];
 	struct reloc_entry entries[];
 };
-static_assert(offsetof(struct reloc_table, entries) %
-		      sizeof(struct reloc_entry) ==
-	      0);
 
 int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
 				size_t len, loff_t *off, void *arg,
