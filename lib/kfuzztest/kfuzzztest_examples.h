@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef KFUZZTEST_EXAMPLES_H
 #define KFUZZTEST_EXAMPLES_H
 

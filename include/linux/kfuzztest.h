@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef KFUZZTEST_H
 #define KFUZZTEST_H
 
@@ -34,9 +35,8 @@ int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
 				size_t arg_size);
 
 /**
- * Parses a binary input of size input_size. Input should be a pointer to a 
- * heap-allocated buffer, and it's ownership is transferred to this function
- * on call.
+ * Parses a binary input of size input_size.
+ *
  * @input: a heap-allocated buffer (ownership transferred).
  * @input_size: the byte-length of input
  * @ret_regions: return pointer to the relocation region array
