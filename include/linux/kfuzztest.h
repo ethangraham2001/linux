@@ -41,11 +41,9 @@ static_assert(offsetof(struct reloc_table, entries) %
 		      sizeof(struct reloc_entry) ==
 	      0);
 
-/**
- * Internal handle used for releasing resources, returned to the caller of
- * __kfuzztest_relocate.
- */
-typedef void *reloc_handle_t;
+int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
+				size_t len, loff_t *off, void *arg,
+				size_t arg_size);
 
 /**
  * Parses a binary input of size input_size. Input should be a pointer to a 
@@ -69,9 +67,9 @@ int __kfuzztest_parse_input(void *input, size_t input_size,
 /**
  * Relocates a parsed input into kernel memory.
  */
-reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
-				    struct reloc_table *rt, void *payload_start,
-				    void *payload_end, void **data_ret);
+int __kfuzztest_relocate(struct reloc_region_array *regions,
+			 struct reloc_table *rt, void *payload_start,
+			 void *payload_end);
 
 struct kfuzztest_target {
 	const char *name;
@@ -81,19 +79,6 @@ struct kfuzztest_target {
 } __attribute__((aligned(32)));
 static_assert(sizeof(struct kfuzztest_target) == 32,
 	      "struct kfuzztest_target should have size 32");
-
-__attribute__((unused)) static int
-write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
-		      loff_t *off, void *arg, size_t arg_size)
-{
-	if (len != arg_size) {
-		return -EINVAL;
-	}
-	if (simple_write_to_buffer((void *)arg, arg_size, off, buf, len) < 0) {
-		return -EFAULT;
-	}
-	return 0;
-}
 
 /**
  * FUZZ_TEST - defines a KFuzzTest target.
@@ -138,65 +123,55 @@ write_input_cb_common(struct file *filp, const char __user *buf, size_t len,
  * }
  */
 #define FUZZ_TEST(test_name, test_arg_type)                                    \
-	static ssize_t _write_callback_##test_name(struct file *filp,          \
-						   const char __user *buf,     \
-						   size_t len, loff_t *off);   \
-	static void _fuzz_test_logic_##test_name(                              \
+	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp,       \
+						      const char __user *buf,  \
+						      size_t len,              \
+						      loff_t *off);            \
+	static void kfuzztest_logic_##test_name(                               \
 		test_arg_type *arg, struct reloc_region_array *regions);       \
 	const struct kfuzztest_target __fuzz_test__##test_name __attribute__(( \
 		__section__(".kfuzztest_target"), __used__)) = {               \
 		.name = #test_name,                                            \
 		.arg_type_name = #test_arg_type,                               \
-		.write_input_cb = _write_callback_##test_name,                 \
+		.write_input_cb = kfuzztest_write_cb_##test_name,              \
 	};                                                                     \
-	/* Invoked when data is written into the target's input file. */       \
-	static ssize_t _write_callback_##test_name(struct file *filp,          \
-						   const char __user *buf,     \
-						   size_t len, loff_t *off)    \
+	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp,       \
+						      const char __user *buf,  \
+						      size_t len, loff_t *off) \
 	{                                                                      \
-		int err;                                                       \
+		int ret;                                                       \
 		struct reloc_region_array *regions;                            \
 		struct reloc_table *rt;                                        \
-		void *payload_start, *payload_end, *relocated;                 \
+		void *payload_start, *payload_end, *buffer;                    \
 		test_arg_type *arg;                                            \
                                                                                \
-		void *buffer = kmalloc(len, GFP_KERNEL);                       \
+		buffer = kmalloc(len, GFP_KERNEL);                             \
 		if (!buffer)                                                   \
 			return -ENOMEM;                                        \
 		else if (IS_ERR(buffer))                                       \
 			return PTR_ERR(buffer);                                \
-		err = write_input_cb_common(filp, buf, len, off, buffer, len); \
-		if (err != 0)                                                  \
-			goto fail;                                             \
-		err = __kfuzztest_parse_input(buffer, len, &regions, &rt,      \
+		ret = __kfuzztest_write_cb_common(filp, buf, len, off, buffer, \
+						  len);                        \
+		if (ret)                                                       \
+			goto out;                                              \
+		ret = __kfuzztest_parse_input(buffer, len, &regions, &rt,      \
 					      &payload_start, &payload_end);   \
-		if (err)                                                       \
-			goto fail;                                             \
-		/* Frees `buffer` on failure. */                               \
-		relocated = __kfuzztest_relocate(regions, rt, payload_start,   \
-						 payload_end, (void *)&arg);   \
-		if (!relocated) {                                              \
-			err = -EINVAL;                                         \
-			goto fail;                                             \
-		}                                                              \
-		pr_info("kfuzztest: success, invoking fuzz logic\n");          \
+		if (ret)                                                       \
+			goto out;                                              \
+		ret = __kfuzztest_relocate(regions, rt, payload_start,         \
+					   payload_end);                       \
+		if (ret)                                                       \
+			goto out;                                              \
 		/* Call the fuzz logic on the provided written input. */       \
-		_fuzz_test_logic_##test_name(arg, regions);                    \
+		arg = (test_arg_type *)payload_start;                          \
+		kfuzztest_logic_##test_name(arg, regions);                     \
+		ret = len;                                                     \
+out:                                                                           \
 		kfree(buffer);                                                 \
-		return len;                                                    \
-fail:                                                                          \
-		pr_info("kfuzztest: a failure occured");                       \
-		kfree(buffer);                                                 \
-		return err;                                                    \
+		return ret;                                                    \
 	}                                                                      \
-	static void _fuzz_test_logic_##test_name(                              \
+	static void kfuzztest_logic_##test_name(                               \
 		test_arg_type *arg, struct reloc_region_array *regions)
-
-/**
- * Reports a bug with a predictable prefix so that it can be parsed by a
- * fuzzing driver.
- */
-#define KFUZZTEST_REPORT_BUG(msg, fmt) pr_warn("bug: " #msg, fmt)
 
 enum kfuzztest_constraint_type : uint8_t {
 	EXPECT_EQ = 0,
@@ -348,11 +323,8 @@ struct kfuzztest_annotation {
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 /**
- * The relocation table format encodes pointer values as a relative offset from 
- * the location of the pointer. A relative offset of zero could indicate that 
- * the pointer points to its own address, which is valid. We encode a null 
- * pointer as 0xFFFFFFFF as adding this value to any address would result in an 
- * overflow anyways, and is therefore invalid in any other circumstance.
+ * The input format is such that the value field is a region index. We reserve
+ * this value to encode a NULL pointer in the input.
  */
 #define KFUZZTEST_REGIONID_NULL U32_MAX
 

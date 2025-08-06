@@ -27,10 +27,10 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 	u32 a_size;
 	u32 b_size;
 
-	KFUZZTEST_EXPECT_NOT_NULL(some_input, a);
-	KFUZZTEST_EXPECT_NOT_NULL(some_input, b);
-	KFUZZTEST_ANNOTATE_LEN(some_input, a_len, a);
-	KFUZZTEST_ANNOTATE_LEN(some_input, b_len, b);
+	KFUZZTEST_EXPECT_NOT_NULL(nested_buffers, a);
+	KFUZZTEST_EXPECT_NOT_NULL(nested_buffers, b);
+	KFUZZTEST_ANNOTATE_LEN(nested_buffers, a_len, a);
+	KFUZZTEST_ANNOTATE_LEN(nested_buffers, b_len, b);
 
 	volatile char c;
 	pr_info("a = [%px, %px)", arg->a, arg->a + arg->a_len);

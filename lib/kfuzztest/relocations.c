@@ -11,11 +11,10 @@
  * If start is not 8-byte-aligned, the remaining bytes in its 8-byte granule
  * can only be poisoned if CONFIG_KASAN_GENERIC is enabled.
  */
-static void __kfuzztest_poison_range(void *start, void *end)
+static void kfuzztest_poison_range(void *start, void *end)
 {
-	uintptr_t start_addr = (uintptr_t)start;
 	uintptr_t end_addr = ALIGN_DOWN((uintptr_t)end, 0x8);
-
+	uintptr_t start_addr = (uintptr_t)start;
 	uintptr_t poison_body_start;
 	uintptr_t poison_body_end;
 	uintptr_t head_granule_start;
@@ -50,49 +49,38 @@ static void __kfuzztest_poison_range(void *start, void *end)
 	}
 }
 
-reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
-				    struct reloc_table *rt, void *payload_start,
-				    void *payload_end, void **data_ret)
+int __kfuzztest_relocate(struct reloc_region_array *regions,
+			 struct reloc_table *rt, void *payload_start,
+			 void *payload_end)
 {
-	pr_info("[ENTER] %s", __FUNCTION__);
 	size_t i;
 	struct reloc_region reg, src, dst;
 	uintptr_t *ptr_location;
 	struct reloc_entry re;
 	void *poison_start, *poison_end;
 
-	pr_info("kfuzztest: %d regions, %d relocations", regions->num_regions,
-		rt->num_entries);
-
-	pr_info("kfuzztest: regions = %px, rt = %px, payload_start = %px, payload_end = %px",
-		regions, rt, payload_start, payload_end);
-
 	/* Patch pointers. */
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
 
 		if (re.region_id >= regions->num_regions)
-			goto fail;
+			return -EINVAL;
 		src = regions->regions[re.region_id];
 
 		ptr_location = (uintptr_t *)((char *)payload_start + src.start +
 					     re.region_offset);
 		if ((char *)ptr_location >= (char *)payload_end)
-			goto fail;
+			return -EINVAL;
 		if (src.start >= src.size)
-			goto fail;
-
+			return -EINVAL;
 		if (re.value == KFUZZTEST_REGIONID_NULL) {
-			pr_info("%px = NULL", ptr_location);
 			*ptr_location = (uintptr_t)NULL;
 		} else {
 			if (re.value >= regions->num_regions)
-				goto fail;
+				return -EINVAL;
 			dst = regions->regions[re.value];
 			*ptr_location =
 				(uintptr_t)((char *)payload_start + dst.start);
-			pr_info("%px -> %px", ptr_location,
-				(void *)*ptr_location);
 		}
 	}
 
@@ -100,9 +88,6 @@ reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
 	for (i = 0; i < regions->num_regions; i++) {
 		reg = regions->regions[i];
 
-		pr_info("kfuzztest: region %zu [%px, %px) (size = %u)", i,
-			payload_start + reg.start,
-			payload_start + reg.start + reg.size, reg.size);
 		/* Points to the beginning of the inter-region padding */
 		poison_start = payload_start + reg.start + reg.size;
 		if (i < regions->num_regions - 1) {
@@ -112,17 +97,11 @@ reloc_handle_t __kfuzztest_relocate(struct reloc_region_array *regions,
 			poison_end = poison_start + 8;
 		}
 
-		if ((char *)poison_end > (char *)payload_end) {
-			pr_info("kfuzztest: poison region out of bounds");
-			goto fail;
-		}
+		if ((char *)poison_end > (char *)payload_end)
+			return -EINVAL;
 
-		__kfuzztest_poison_range(poison_start, poison_end);
+		kfuzztest_poison_range(poison_start, poison_end);
 	}
 
-	*data_ret = payload_start;
-	/* Returned as `reloc_handle_t`. */
-	return regions;
-fail:
-	return NULL;
+	return 0;
 }

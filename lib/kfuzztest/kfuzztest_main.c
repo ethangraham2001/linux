@@ -57,13 +57,7 @@ struct kfuzztest_state {
 /* Global static variable to hold all state for the module. */
 static struct kfuzztest_state st;
 
-/**
- * Default file permissions for the debugfs entries.
- * 0222: World-writable for the 'input' file.
- *
- * XXX: should formally define what the permissions should be on these files.
- */
-const umode_t kfuzztest_flags_w = 0222;
+const umode_t KFUZZTEST_INPUT_PERMS = 0222;
 
 /**
  * kfuzztest_init - Initializes the debug filesystem for KFuzzTest.
@@ -126,7 +120,7 @@ static int __init kfuzztest_init(void)
 				.write = targ->write_input_cb,
 			};
 		st.debugfs_state[i].input_dentry.dentry = debugfs_create_file(
-			"input", kfuzztest_flags_w,
+			"input", KFUZZTEST_INPUT_PERMS,
 			st.debugfs_state[i].target_dir, NULL,
 			&st.debugfs_state[i].input_dentry.fops);
 		if (!st.debugfs_state[i].input_dentry.dentry) {
@@ -137,7 +131,7 @@ static int __init kfuzztest_init(void)
 			goto cleanup_failure;
 		}
 
-		pr_info("KFuzzTest: registered target %s\n", targ->name);
+		pr_info("KFuzzTest: registered target %s", targ->name);
 	}
 
 	return 0;
@@ -149,7 +143,7 @@ cleanup_failure:
 
 static void __exit kfuzztest_exit(void)
 {
-	pr_info("KFuzzTest: exiting\n");
+	pr_info("KFuzzTest: exiting");
 	if (!st.kfuzztest_dir)
 		return;
 
