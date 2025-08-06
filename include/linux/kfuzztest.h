@@ -8,25 +8,89 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
+/**
+ * @brief The KFuzzTest Input Serialization Format
+ *
+ * KFuzzTest receives its input from userspace as a single binary blob. This
+ * format allows for the serialization of complex, pointer-rich C structures
+ * into a flat buffer that can be safely passed into the kernel. This format
+ * requires only a single copy from userspace into a kenrel buffer, and no
+ * further kernel allocations. Pointers are patched internally using a "region"
+ * system where each region corresponds to some pointed-to data.
+ *
+ * Regions should be padded to respect alignment constraints of their
+ * underlying types. These padded regions are poisoned by KFuzzTest to ensure
+ * that KASAN catches OOB accesses.
+ *
+ * The format consists of three main components:
+ * 1. A reloc_region_array: Defines the memory layout of the target structure
+ *	by partitioning the payload into logical regions. Each logical region
+ *	should contain the byte representation of the type that it represents,
+ *	including any necessary padding.
+ * 2. A reloc_table: Provides "linking" instructions that tell the kernel how
+ *	to patch pointer fields to point to the correct regions. By design,
+ *	the first region (index 0) is passed as input into a FUZZ_TEST.
+ * 3. A Payload: The raw binary data for the structure and its associated
+ *	buffers. This should be aligned to the maximum alignment of all
+ *	regions to satisfy alignment requirements of the input types, but this
+ *	isn't checked by the parser. The payload should have at least 8 bytes
+ *	of trailing padding.
+ *
+ * For a detailed specification of the binary layout see the full documentation
+ * at: Documentation/dev-tools/kfuzztest.rst
+ */
+
+/**
+ * struct reloc_region - Describes a single contiguous memory region in the
+ * payload.
+ *
+ * @start: The byte offset of this region from the start of the payload, which
+ *	should be aligned to the alignment requirements of the region's
+ *	underlying type.
+ * @size: The size of this region in bytes.
+ */
 struct reloc_region {
-	uint32_t start; /* Offset from the start of the payload. */
+	uint32_t start;
 	uint32_t size;
 };
 
+/**
+ * struct reloc_region_array - An array of all memory regions.
+ * @num_regions: The total number of regions defined.
+ * @regions: A flexible array of `num_regions` region descriptors.
+ */
 struct reloc_region_array {
 	uint32_t num_regions;
 	struct reloc_region regions[];
 };
 
+/**
+ * struct reloc_entry describes a single pointer to be patched.
+ *
+ * @region_id: The index of the region in the `reloc_region_array` that
+ *	contains the pointer.
+ * @region_offset: The start offset of the pointer inside of the region.
+ * @value: contains the index of the pointee region, or KFUZZTEST_REGIONID_NULL
+ *	if the pointer is NULL.
+ */
 struct reloc_entry {
-	uint32_t region_id; /* Region that pointer belongs to. */
-	uint32_t region_offset; /* Offset from the beginning of the region. */
-	uint32_t value; /* Pointee tegion identifier, or (void*)-1 if NULL */
+	uint32_t region_id;
+	uint32_t region_offset;
+	uint32_t value;
 };
 
+/**
+ * struct reloc_entry is an array of all pointer relocations required by an
+ * input.
+ *
+ * @num_entries: the number of pointer relocations.
+ * @payload_offset: the number of padded bytes between the last relocation in
+ *	entries, and the start of the payload data.
+ * @entries: array of relocations.
+ */
 struct reloc_table {
 	uint32_t num_entries;
-	uint32_t payloadOffset; /* Offset from start of relocation table */
+	uint32_t payload_offset;
 	struct reloc_entry entries[];
 };
 
@@ -35,17 +99,26 @@ int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
 				size_t arg_size);
 
 /**
- * Parses a binary input of size input_size.
+ * __kfuzztest_parse_input validates and parses the KFuzzTest input format.
  *
- * @input: a heap-allocated buffer (ownership transferred).
- * @input_size: the byte-length of input
- * @ret_regions: return pointer to the relocation region array
- * @ret_reloc_table: return pointer to the relocation table
- * @ret_payload_start: return pointer to the start of payload the data
- * @ret_payload_end: return pointer to the end of the payload data, i.e., the 
- *	first address that is out of the bounds of the payload.
+ * @input: A buffer containing the serialized test case.
+ * @input_size: The size in bytes of the @input buffer.
+ * @ret_regions: On success, updated to point to the relocation region array
+ *	within the @input buffer.
+ * @ret_reloc_table: On success, updated to point to the relocation table
+ *	within the @input buffer.
+ * @ret_payload_start: On success, updated to point to the start of the data
+ *	payload within the @input buffer.
+ * @ret_payload_end: On success, updated to point to the first byte after the
+ *	end of the data payload.
  *
- * @return 0 on success, or an error code.
+ * This function performs the initial validation of the binary input blob. It
+ * checks that the declared sizes of the region array and relocation table are
+ * within the bounds of the total input size and extracts pointers to the
+ * main components of the format. It does not perform a deep validation of
+ * the entries themselves, which is instead done by __kfuzztest_relocate.
+ *
+ * Returns: 0 on success, or a negative error code on failure.
  */
 int __kfuzztest_parse_input(void *input, size_t input_size,
 			    struct reloc_region_array **ret_regions,
@@ -53,7 +126,25 @@ int __kfuzztest_parse_input(void *input, size_t input_size,
 			    void **ret_payload_start, void **ret_payload_end);
 
 /**
- * Relocates a parsed input into kernel memory.
+ * __kfuzztest_relocate hydrates the payload by patching pointers.
+ *
+ * @regions: The relocation region array parsed from the input.
+ * @rt: The relocation table parsed from the input.
+ * @payload_start: A pointer to the start of the data payload.
+ * @payload_end: A pointer to the first byte after the end of the payload.
+ *
+ * This function iterates through the region array and relocation table to
+ * patch the pointers inside of the payload, reconstructing pointer-pointee
+ * relationships between the logical regions of the fuzz driver input. For
+ * each entry in @rt, it calculates the address the address of a pointer field
+ * within the payload and sets it to the start address of its target region, or
+ * a NULL pointer if marked with KFUZZTEST_REGIONID_NULL.
+ *
+ * The padded areas between each region are poisoned with a KASAN slab redzone
+ * to enable the detection of byte-accurate OOB accesses in the fuzz logic.
+ *
+ * Returns: 0 on success, or a negative error code if the relocation data is
+ * found to be corrupt (e.g., invalid pointers).
  */
 int __kfuzztest_relocate(struct reloc_region_array *regions,
 			 struct reloc_table *rt, void *payload_start,
@@ -69,45 +160,64 @@ static_assert(sizeof(struct kfuzztest_target) == 32,
 	      "struct kfuzztest_target should have size 32");
 
 /**
- * FUZZ_TEST - defines a KFuzzTest target.
+ * FUZZ_TEST defines a KFuzzTest target.
  *
- * @test_name: Name of the fuzz target, which is used to create the associated
- *	debufs entries.
- * @test_arg_type: the input type of fuzz target. This should always be a 
- *	struct type even when fuzzing with a single input parameter in order
- *	to take advantage of the domain constraint and annotation systems. See 
- *	usage example below.
+ * @test_name: The unique identifier for the fuzz test, which is used to name
+ *	the debugfs entry, e.g., /sys/kernel/debug/kftf/@test_name.
+ * @test_arg_type: The struct type that defines the inputs for the test. This
+ *	must be the full struct type (e.g., "struct my_inputs"), not a typedef.
  *
+ * Context:
+ * This macro is the primary entry point for the KFuzzTest framework. It
+ * generates all the necessary boilerplate for a fuzz test, including:
+ *   - A static `struct kfuzztest_target` instance that is placed in a
+ *	dedicated ELF section for discovery by userspace tools.
+ *   - A `debugfs` write callback that handles receiving serialized data from
+ *	a fuzzer, parsing it, and "hydrating" it into a valid C struct.
+ *   - A function stub where the developer places the test logic.
  *
- * This macro generates all of the necessary boilerplate for a KFuzzTest 
- * driver, which is placed in a dedicated ".kfuzztest_target" that is used by 
- * the KFuzzTest module and can be read by a fuzzing engine.
+ * User-Provided Logic:
+ * The developer must provide the body of the fuzz test logic within the curly
+ * braces following the macro invocation. Within this scope, the framework
+ * provides the following variables:
  *
- * For each test, this macro generates
- *	- A buffer to receive input through the debugfs entry
- *	- A mutex to protect the input buffer
- *	- A `struct kfuzztest_target` instance
+ * - `arg`: A pointer of type `@test_arg_type *` to the fully hydrated input
+ * structure. All pointer fields within this struct have been relocated
+ * and are valid kernel pointers. This is the primary variable to use
+ * for accessing fuzzing inputs.
  *
- * Example usage:
+ * - `regions`: A pointer of type `struct reloc_region_array *`. This is an
+ * advanced feature that allows access to the raw region metadata, which
+ * can be useful for checking the actual allocated size of a buffer via
+ * `KFUZZTEST_REGION_SIZE(n)`.
  *
- * // Assume that we are fuzzing some function func(T1 param1, ... TN paramN).
- * // Define input type of the fuzz target. This should be always be a struct.
- * struct test_arg_type {
- *	T1 arg1;
- *	...
- *	TN argn;
+ * Example Usage:
+ *
+ * // 1. The kernel function we want to fuzz.
+ * int process_data(const char *data, size_t len);
+ *
+ * // 2. Define a struct to hold all inputs for the function.
+ * struct process_data_inputs {
+ *	const char *data;
+ *	size_t len;
  * };
  *
- * // Define the test case.
- * FUZZ_TEST(test_func, struct test_arg_type) 
+ * // 3. Define the fuzz test using the FUZZ_TEST macro.
+ * FUZZ_TEST(process_data_fuzzer, struct process_data_inputs)
  * {
- *      int ret;
- *	// arg is provided by the macro, and is of type struct test_arg_type.
- *	ret = func(arg.arg1, ..., arg.argn);
- *	// Validate the return value if testing for correctness.
- *	if (ret != expected_value) {
- *		KFUZZTEST_REPORT_BUG("Unexpected return value");
- *	}
+ *	int ret;
+ *	// Use KFUZZTEST_EXPECT_* to enforce preconditions.
+ *	// The test will exit early if data is NULL.
+ *	KFUZZTEST_EXPECT_NOT_NULL(process_data_inputs, data);
+ *
+ *	// Use KFUZZTEST_ANNOTATE_* to provide hints to the fuzzer.
+ *	// This links the 'len' field to the 'data' buffer.
+ *	KFUZZTEST_ANNOTATE_LEN(process_data_inputs, len, data);
+ *
+ *	// Call the function under test using the 'arg' variable. OOB memory
+ *	// accesses will be caught by KASAN, but the user can also choose to
+ *	// validate the return value and log any failures.
+ *	ret = process_data(arg->data, arg->len);
  * }
  */
 #define FUZZ_TEST(test_name, test_arg_type)                                    \
@@ -170,37 +280,31 @@ enum kfuzztest_constraint_type : uint8_t {
 };
 
 /**
- * Domain constraints are used to restrict the values that the fuzz driver
- * accepts, enforcing early exit when not satisfied. Domain constraints are
- * encoded in vmlinux under the `__kfuzztest_constraint` section. A good 
- * fuzzing engine should be aware of these domain constraints during input 
- * generation and mutation.
+ * struct kfuzztest_constraint defines a metadata record for a domain
+ * constraint.
  *
- * struct kfuzztest_constraint defines a domain constraint for a structure
- * field.
+ * Domain constraints are rules about the input data that must be satisfied for
+ * a fuzz test to proceed. While they are enforced in the kernel with a runtime
+ * check, they are primarily intended as a discoverable contract for userspace
+ * fuzzers.
  *
- * @input_type: the name of the input (a struct name)
- * @field_name: the name of the field that this domain constraint applies to
- * @value1: used in all comparisons
- * @value2: only used in comparisons that require multiple values, e.g. range
- *	constraints
- * @type: the type of the constraint, enumerated above
+ * Instances of this struct are generated by the KFUZZTEST_EXPECT_* macros
+ * and placed into the read-only ".kfuzztest_constraint" ELF section of the
+ * vmlinux binary. A fuzzer can parse this section to learn about the
+ * constraints and generate valid inputs more intelligently.
  *
- * Example usage:
+ * For an example of how these constraints are used within a fuzz test, see the
+ * documentation for the FUZZ_TEST() macro.
  *
- * struct foo {
- *	struct bar *a;
- *	int b
- * };
- *
- * FUZZ_TEST(test_name, struct foo)
- * {
- *	// Early exit if foo.a == NULL.
- *	KFUZZTEST_EXPECT_NOT_NULL(foo, a);
- *	// Early exit if foo < 23 || foo > 42
- *	KFUZZTEST_EXPECT_IN_RANGE(foo, b, 23, 42);
- *	// User-defined fuzz logic.
- * }
+ * @input_type: The name of the input struct type, without the leading
+ *	"struct ".
+ * @field_name: The name of the field within the struct that this constraint
+ *	applies to.
+ * @value1: The primary value used in the comparison (e.g., the upper
+ *	bound for EXPECT_LE).
+ * @value2: The secondary value, used only for multi-value comparisons
+ *	(e.g., the upper bound for EXPECT_IN_RANGE).
+ * @type: The type of the constraint.
  */
 struct kfuzztest_constraint {
 	const char *input_type;
@@ -259,13 +363,15 @@ static_assert(sizeof(struct kfuzztest_constraint) == 64,
 
 /**
  * Annotations express attributes about structure fields that can't be easily
- * verified at runtime, and are intended as a hint to the fuzzing engine.
+ * or safely verified at runtime. They are intended as hints to the fuzzing
+ * engine to help it generate more semantically correct and effective inputs.
+ * Unlike constraints, annotations do not add any runtime checks and do not
+ * cause a test to exit early.
  *
- * For example, a char* could either be a raw byte buffer or a string, where
- * the latter is null terminated. If a function accepts a null-terminated 
- * string without a length and is passed an arbitrary byte buffer, we
- * may get false positive KASAN reports, for example. However, verifying that 
- * the char buffer is null-termined could itself trigger a memory overflow.
+ * For example, a `char *` field could be a raw byte buffer or a C-style
+ * null-terminated string. A fuzzer that is aware of this distinction can avoid
+ * creating inputs that would cause trivial, uninteresting crashes from reading
+ * past the end of a non-null-terminated buffer.
  */
 enum kfuzztest_annotation_attribute : uint8_t {
 	ATTRIBUTE_LEN = 0,
@@ -273,6 +379,30 @@ enum kfuzztest_annotation_attribute : uint8_t {
 	ATTRIBUTE_ARRAY,
 };
 
+/**
+ * struct kfuzztest_annotation defines a metadata record for a fuzzer hint.
+ *
+ * This struct captures a single hint about a field in the input structure.
+ * Instances are generated by the KFUZZTEST_ANNOTATE_* macros and are placed
+ * into the read-only ".kfuzztest_annotation" ELF section of the vmlinux binary.
+ *
+ * A userspace fuzzer can parse this section to understand the semantic
+ * relationships between fields (e.g., which field is a length for which
+ * buffer) and the expected format of the data (e.g., a null-terminated
+ * string). This allows the fuzzer to be much more intelligent during input
+ * generation and mutation.
+ *
+ * For an example of how annotations are used within a fuzz test, see the
+ * documentation for the FUZZ_TEST() macro.
+ *
+ * @input_type: The name of the input struct type.
+ * @field_name: The name of the field being annotated (e.g., the data
+ *	buffer field).
+ * @linked_field_name: For annotations that link two fields (like
+ *	ATTRIBUTE_LEN), this is the name of the related field (e.g., the
+ *	length field). For others, this may be unused.
+ * @attrib: The type of the annotation hint.
+ */
 struct kfuzztest_annotation {
 	const char *input_type;
 	const char *field_name;
@@ -310,13 +440,9 @@ struct kfuzztest_annotation {
 #define KFUZZTEST_ANNOTATE_LEN(arg_type, field, linked_field) \
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
-/**
- * The input format is such that the value field is a region index. We reserve
- * this value to encode a NULL pointer in the input.
- */
 #define KFUZZTEST_REGIONID_NULL U32_MAX
 
-/* The size of a region if it exists, or 0 if it does not. */
+/** Get the size of a payload region from within a FUZZ_TEST body */
 #define KFUZZTEST_REGION_SIZE(n) \
 	((n) < (regions->num_regions) ? (regions->regions[n].size) : 0)
 

@@ -74,14 +74,15 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 			return -EINVAL;
 		if (src.start >= src.size)
 			return -EINVAL;
+
 		if (re.value == KFUZZTEST_REGIONID_NULL) {
 			*ptr_location = (uintptr_t)NULL;
-		} else {
-			if (re.value >= regions->num_regions)
-				return -EINVAL;
+		} else if (re.value < regions->num_regions) {
 			dst = regions->regions[re.value];
 			*ptr_location =
 				(uintptr_t)((char *)payload_start + dst.start);
+		} else {
+			return -EINVAL;
 		}
 	}
 
@@ -103,6 +104,5 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 
 		kfuzztest_poison_range(poison_start, poison_end);
 	}
-
 	return 0;
 }

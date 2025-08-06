@@ -22,7 +22,7 @@ int __kfuzztest_parse_input(void *input, size_t input_size,
 	pr_info("[ENTER] %s", __FUNCTION__);
 	int err;
 	void *payload_end, *payload_start;
-	size_t reloc_entries_size, regions_size;
+	size_t reloc_table_size, regions_size;
 	struct reloc_table *rt;
 	struct reloc_region_array *regions;
 
@@ -44,15 +44,16 @@ int __kfuzztest_parse_input(void *input, size_t input_size,
 		goto fail;
 	}
 
-	reloc_entries_size =
-		sizeof(*rt) + rt->num_entries * sizeof(struct reloc_entry);
-	if ((char *)rt + reloc_entries_size > (char *)payload_end) {
+	reloc_table_size = sizeof(*rt) +
+			   rt->num_entries * sizeof(struct reloc_entry) +
+			   rt->payload_offset;
+	if ((char *)rt + reloc_table_size > (char *)payload_end) {
 		err = -EINVAL;
 		goto fail;
 	}
 
 	pr_info("kfuzztest: num relocations = %u, size = %zu", rt->num_entries,
-		reloc_entries_size);
+		reloc_table_size);
 
 	payload_start = (char *)(rt->entries + rt->num_entries);
 	if ((char *)payload_start > (char *)payload_end) {
