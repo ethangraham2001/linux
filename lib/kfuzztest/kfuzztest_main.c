@@ -55,7 +55,7 @@ struct kfuzztest_state {
 };
 
 /* Global static variable to hold all state for the module. */
-static struct kfuzztest_state st;
+static struct kfuzztest_state state;
 
 const umode_t KFUZZTEST_INPUT_PERMS = 0222;
 
@@ -79,55 +79,57 @@ static int __init kfuzztest_init(void)
 
 	num_test_cases = __kfuzztest_targets_end - __kfuzztest_targets_start;
 
-	st.debugfs_state =
+	state.debugfs_state =
 		kmalloc(num_test_cases * sizeof(struct kfuzztest_debugfs_state),
 			GFP_KERNEL);
-	if (!st.debugfs_state)
+	if (!state.debugfs_state)
 		return -ENOMEM;
-	else if (IS_ERR(st.debugfs_state))
-		return PTR_ERR(st.debugfs_state);
+	else if (IS_ERR(state.debugfs_state))
+		return PTR_ERR(state.debugfs_state);
 
 	/* Create the main "kfuzztest" directory in /sys/kernel/debug. */
-	st.kfuzztest_dir = debugfs_create_dir("kfuzztest", NULL);
-	if (!st.kfuzztest_dir) {
+	state.kfuzztest_dir = debugfs_create_dir("kfuzztest", NULL);
+	if (!state.kfuzztest_dir) {
 		pr_warn("KFuzzTest: could not create debugfs");
 		return -ENODEV;
 	}
 
-	if (IS_ERR(st.kfuzztest_dir)) {
-		st.kfuzztest_dir = NULL;
-		return PTR_ERR(st.kfuzztest_dir);
+	if (IS_ERR(state.kfuzztest_dir)) {
+		state.kfuzztest_dir = NULL;
+		return PTR_ERR(state.kfuzztest_dir);
 	}
 
 	for (targ = __kfuzztest_targets_start; targ < __kfuzztest_targets_end;
 	     targ++, i++) {
 		/* Create debugfs directory for the target. */
-		st.debugfs_state[i].target_dir =
-			debugfs_create_dir(targ->name, st.kfuzztest_dir);
+		state.debugfs_state[i].target_dir =
+			debugfs_create_dir(targ->name, state.kfuzztest_dir);
 
-		if (!st.debugfs_state[i].target_dir) {
+		if (!state.debugfs_state[i].target_dir) {
 			ret = -ENOMEM;
 			goto cleanup_failure;
-		} else if (IS_ERR(st.debugfs_state[i].target_dir)) {
-			ret = PTR_ERR(st.debugfs_state[i].target_dir);
+		} else if (IS_ERR(state.debugfs_state[i].target_dir)) {
+			ret = PTR_ERR(state.debugfs_state[i].target_dir);
 			goto cleanup_failure;
 		}
 
 		/* Create an input file under the target's directory. */
-		st.debugfs_state[i].input_dentry.fops =
+		state.debugfs_state[i].input_dentry.fops =
 			(struct file_operations){
 				.owner = THIS_MODULE,
 				.write = targ->write_input_cb,
 			};
-		st.debugfs_state[i].input_dentry.dentry = debugfs_create_file(
-			"input", KFUZZTEST_INPUT_PERMS,
-			st.debugfs_state[i].target_dir, NULL,
-			&st.debugfs_state[i].input_dentry.fops);
-		if (!st.debugfs_state[i].input_dentry.dentry) {
+		state.debugfs_state[i].input_dentry.dentry =
+			debugfs_create_file(
+				"input", KFUZZTEST_INPUT_PERMS,
+				state.debugfs_state[i].target_dir, NULL,
+				&state.debugfs_state[i].input_dentry.fops);
+		if (!state.debugfs_state[i].input_dentry.dentry) {
 			ret = -ENOMEM;
 			goto cleanup_failure;
-		} else if (IS_ERR(st.debugfs_state[i].input_dentry.dentry)) {
-			ret = PTR_ERR(st.debugfs_state[i].input_dentry.dentry);
+		} else if (IS_ERR(state.debugfs_state[i].input_dentry.dentry)) {
+			ret = PTR_ERR(
+				state.debugfs_state[i].input_dentry.dentry);
 			goto cleanup_failure;
 		}
 
@@ -137,22 +139,22 @@ static int __init kfuzztest_init(void)
 	return 0;
 
 cleanup_failure:
-	debugfs_remove_recursive(st.kfuzztest_dir);
+	debugfs_remove_recursive(state.kfuzztest_dir);
 	return ret;
 }
 
 static void __exit kfuzztest_exit(void)
 {
 	pr_info("KFuzzTest: exiting");
-	if (!st.kfuzztest_dir)
+	if (!state.kfuzztest_dir)
 		return;
 
-	debugfs_remove_recursive(st.kfuzztest_dir);
-	st.kfuzztest_dir = NULL;
+	debugfs_remove_recursive(state.kfuzztest_dir);
+	state.kfuzztest_dir = NULL;
 
-	if (st.debugfs_state) {
-		kfree(st.debugfs_state);
-		st.debugfs_state = NULL;
+	if (state.debugfs_state) {
+		kfree(state.debugfs_state);
+		state.debugfs_state = NULL;
 	}
 }
 
