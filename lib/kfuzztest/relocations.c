@@ -22,33 +22,26 @@ static void kfuzztest_poison_range(void *start, void *end)
 	uintptr_t head_granule_start;
 	size_t head_prefix_size;
 
+	if (!IS_ENABLED(CONFIG_KASAN))
+		return;
+
 	if (start_addr >= end_addr)
 		return;
 
 	head_granule_start = ALIGN_DOWN(start_addr, 0x8);
 	head_prefix_size = start_addr - head_granule_start;
 
-	if (IS_ENABLED(CONFIG_KASAN_GENERIC) && head_prefix_size > 0) {
+	if (IS_ENABLED(CONFIG_KASAN_GENERIC) && head_prefix_size > 0)
 		kasan_poison_last_granule((void *)head_granule_start,
 					  head_prefix_size);
-		pr_info("kfuzztest: poisoned [%px, %px)",
-			(void *)head_granule_start + head_prefix_size,
-			(void *)head_granule_start + 8);
-	}
 
 	poison_body_start = ALIGN(start_addr, 0x8);
 	poison_body_end = ALIGN_DOWN(end_addr, 0x8);
 
-	pr_info("kfuzztest: want to additionally poison [%px, %px)",
-		(void *)poison_body_start, (void *)poison_body_end);
-	if (poison_body_start < poison_body_end) {
+	if (poison_body_start < poison_body_end)
 		kasan_poison((void *)poison_body_start,
 			     poison_body_end - poison_body_start,
 			     POISON_REGION_END, false);
-
-		pr_info("kfuzztest: poisoned [%px, %px)",
-			(void *)poison_body_start, (void *)poison_body_end);
-	}
 }
 
 int __kfuzztest_relocate(struct reloc_region_array *regions,
