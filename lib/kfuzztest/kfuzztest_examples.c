@@ -38,7 +38,7 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 	 * on the first byte to the right of the buffer which will trigger
 	 * a KASAN report.
 	 */
-	for (i = 0; i < arg->a_len; i++)
+	for (i = 0; i <= arg->a_len; i++)
 		READ_ONCE(arg->a[i]);
 }
 
