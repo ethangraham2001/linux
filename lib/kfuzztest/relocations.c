@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright 2025 Google LLC */
 #include <linux/kfuzztest.h>
 #include <linux/kasan.h>
 

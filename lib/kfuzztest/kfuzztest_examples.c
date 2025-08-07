@@ -1,7 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-#ifndef KFUZZTEST_EXAMPLES_H
-#define KFUZZTEST_EXAMPLES_H
-
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright 2025 Google LLC */
 #include <linux/kfuzztest.h>
 
 struct nested_buffers {
@@ -47,5 +45,3 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 	for (size_t i = 0; i <= a_size; i++)
 		c = arg->a[i];
 }
-
-#endif /* KFUZZTEST_EXAMPLES_H */

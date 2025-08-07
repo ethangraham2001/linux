@@ -1,10 +1,12 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Kernel Fuzz Testing Framework (KFuzzTest) - Core Module
  *
  * This module is responsible for discovering and initializing all fuzz test
  * cases defined using the FUZZ_TEST() macro. It creates a debugfs interface
  * under /sys/kernel/debug/kfuzztest/ for userspace to interact with each test.
+ *
+ * Copyright 2025 Google LLC
  */
 #include <linux/debugfs.h>
 #include <linux/fs.h>

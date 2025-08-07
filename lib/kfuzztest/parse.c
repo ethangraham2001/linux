@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright 2025 Google LLC */
 #include <linux/kfuzztest.h>
 
 int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,

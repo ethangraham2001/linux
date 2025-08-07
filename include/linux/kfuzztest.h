@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright 2025 Google LLC */
 #ifndef KFUZZTEST_H
 #define KFUZZTEST_H
 
