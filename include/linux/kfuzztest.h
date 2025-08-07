@@ -312,8 +312,10 @@ out:                                                                           \
 enum kfuzztest_constraint_type {
 	EXPECT_EQ = 0,
 	EXPECT_NE,
+	EXPECT_LT,
 	EXPECT_LE,
 	EXPECT_GT,
+	EXPECT_GE,
 	EXPECT_IN_RANGE,
 };
 
@@ -380,6 +382,11 @@ static_assert(sizeof(struct kfuzztest_constraint) == 64,
 		return;                           \
 	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE)
 
+#define KFUZZTEST_EXPECT_LT(arg_type, field, val) \
+	if (arg->field >= val)                    \
+		return;                           \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LT)
+
 #define KFUZZTEST_EXPECT_LE(arg_type, field, val) \
 	if (arg->field > val)                     \
 		return;                           \
@@ -389,6 +396,11 @@ static_assert(sizeof(struct kfuzztest_constraint) == 64,
 	if (arg->field <= val)                    \
 		return;                           \
 	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT)
+
+#define KFUZZTEST_EXPECT_GE(arg_type, field, val) \
+	if (arg->field < val)                     \
+		return;                           \
+	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GE)
 
 #define KFUZZTEST_EXPECT_NOT_NULL(arg_type, field) \
 	KFUZZTEST_EXPECT_NE(arg_type, field, 0x0)
