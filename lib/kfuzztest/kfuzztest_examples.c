@@ -20,12 +20,48 @@ struct nested_buffers {
  */
 FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 {
+	size_t i;
+
 	KFUZZTEST_EXPECT_NOT_NULL(nested_buffers, a);
 	KFUZZTEST_EXPECT_NOT_NULL(nested_buffers, b);
 	KFUZZTEST_ANNOTATE_LEN(nested_buffers, a_len, a);
 	KFUZZTEST_ANNOTATE_LEN(nested_buffers, b_len, b);
 
-	/* Buffer overflow out of a bounds. This should be caught by KASAN. */
-	for (size_t i = 0; i <= arg->a_len; i++)
+	pr_info("a = [%px, %px)", arg->a, arg->a + KFUZZTEST_REGION_SIZE(1));
+	pr_info("b = [%px, %px)", arg->b, arg->b + KFUZZTEST_REGION_SIZE(2));
+
+	/* Ensure that all bytes in arg->b are accessible. */
+	for (i = 0; i < arg->b_len; i++)
+		READ_ONCE(arg->b[i]);
+	/*
+	 * Check that all bytes in arg->a are accessible, and provoke an OOB
+	 * on the first byte to the right of the buffer which will trigger
+	 * a KASAN report.
+	 */
+	for (i = 0; i < arg->a_len; i++)
 		READ_ONCE(arg->a[i]);
+}
+
+struct some_buffer {
+	char *buf;
+	size_t buflen;
+};
+
+FUZZ_TEST(test_underflow_on_buffer, struct some_buffer)
+{
+	size_t i;
+
+	KFUZZTEST_EXPECT_NOT_NULL(some_buffer, buf);
+	KFUZZTEST_ANNOTATE_LEN(some_buffer, buflen, buf);
+
+	pr_info("buf = [%px, %px)", arg->buf, arg->buf + arg->buflen);
+
+	/* First ensure that all bytes in arg->b are accessible. */
+	for (i = 0; i < arg->buflen; i++)
+		READ_ONCE(arg->buf[i]);
+	/*
+	 * Provoke a buffer overflow on the first byte preceding b, triggering
+	 * a KASAN report.
+	 */
+	READ_ONCE(*((char *)arg->buf - 1));
 }
