@@ -3,7 +3,13 @@
 #include <linux/kfuzztest.h>
 #include <linux/kasan.h>
 
-#define POISON_REGION_END 0xFC
+/*
+ * XXX: These are both defined in `mm/kasan/kasan.h`, but the build breaks if we
+ * define them in `include/linux/kasan.h` Since these values are unlikely to
+ * change, we redefine them here.
+ */
+#define __KASAN_SLAB_REDZONE 0xFC
+#define __KASAN_GRANULE_SIZE 0x8
 
 /**
  * Poison the half open interval [start, end], where end should be 8-byte 
@@ -15,7 +21,7 @@
  */
 static void kfuzztest_poison_range(void *start, void *end)
 {
-	uintptr_t end_addr = ALIGN_DOWN((uintptr_t)end, 0x8);
+	uintptr_t end_addr = ALIGN_DOWN((uintptr_t)end, __KASAN_GRANULE_SIZE);
 	uintptr_t start_addr = (uintptr_t)start;
 	uintptr_t poison_body_start;
 	uintptr_t poison_body_end;
@@ -28,20 +34,20 @@ static void kfuzztest_poison_range(void *start, void *end)
 	if (start_addr >= end_addr)
 		return;
 
-	head_granule_start = ALIGN_DOWN(start_addr, 0x8);
+	head_granule_start = ALIGN_DOWN(start_addr, __KASAN_GRANULE_SIZE);
 	head_prefix_size = start_addr - head_granule_start;
 
 	if (IS_ENABLED(CONFIG_KASAN_GENERIC) && head_prefix_size > 0)
 		kasan_poison_last_granule((void *)head_granule_start,
 					  head_prefix_size);
 
-	poison_body_start = ALIGN(start_addr, 0x8);
-	poison_body_end = ALIGN_DOWN(end_addr, 0x8);
+	poison_body_start = ALIGN(start_addr, __KASAN_GRANULE_SIZE);
+	poison_body_end = ALIGN_DOWN(end_addr, __KASAN_GRANULE_SIZE);
 
 	if (poison_body_start < poison_body_end)
 		kasan_poison((void *)poison_body_start,
 			     poison_body_end - poison_body_start,
-			     POISON_REGION_END, false);
+			     __KASAN_SLAB_REDZONE, false);
 }
 
 int __kfuzztest_relocate(struct reloc_region_array *regions,
@@ -69,15 +75,14 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 		if (src.start >= src.size)
 			return -EINVAL;
 
-		if (re.value == KFUZZTEST_REGIONID_NULL) {
+		if (re.value == KFUZZTEST_REGIONID_NULL)
 			*ptr_location = (uintptr_t)NULL;
-		} else if (re.value < regions->num_regions) {
+		else if (re.value < regions->num_regions) {
 			dst = regions->regions[re.value];
 			*ptr_location =
 				(uintptr_t)((char *)payload_start + dst.start);
-		} else {
+		} else
 			return -EINVAL;
-		}
 	}
 
 	/* Poison the padding between regions. */
@@ -86,12 +91,12 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 
 		/* Points to the beginning of the inter-region padding */
 		poison_start = payload_start + reg.start + reg.size;
-		if (i < regions->num_regions - 1) {
+		if (i < regions->num_regions - 1)
 			poison_end =
 				payload_start + regions->regions[i + 1].start;
-		} else {
-			poison_end = poison_start + 8;
-		}
+		else
+			/* The last region is padded with 8 bytes. */
+			poison_end = poison_start + 0x8;
 
 		if ((char *)poison_end > (char *)payload_end)
 			return -EINVAL;
