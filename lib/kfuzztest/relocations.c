@@ -55,6 +55,7 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 	/* Patch pointers. */
 	for (i = 0; i < rt->num_entries; i++) {
 		re = rt->entries[i];
+		src = regions->regions[re.region_id];
 		ptr_location = (uintptr_t *)((char *)payload_start +
 					     src.offset + re.region_offset);
 		if (re.value == KFUZZTEST_REGIONID_NULL)
@@ -86,11 +87,8 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 		kfuzztest_poison_range(poison_start, poison_end);
 	}
 
-	/*
-	 * Poison the area preceding the payload. This corresponds to the end
-	 * of the relocation table, which we can safely discard as it is no
-	 * longer needed.
-	 */
-	kfuzztest_poison_range((char *)payload_start - 8, payload_start);
+	/* Poison the padded area preceding the payload. */
+	kfuzztest_poison_range((char *)payload_start - rt->padding_size,
+			       payload_start);
 	return 0;
 }

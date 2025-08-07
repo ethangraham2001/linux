@@ -52,6 +52,12 @@ static bool __kfuzztest_input_is_valid(struct reloc_region_array *regions,
 		}
 	}
 
+	if (rt->padding_size < KFUZZTEST_POISON_SIZE) {
+		pr_info("validation failed because rt->padding_size = %u",
+			rt->padding_size);
+		return false;
+	}
+
 	for (i = 0; i < rt->num_entries; i++) {
 		reloc = rt->entries[i];
 		if (reloc.region_id >= regions->num_regions)
@@ -108,7 +114,7 @@ int __kfuzztest_parse_input(void *input, size_t input_size,
 	if (check_add_overflow(sizeof(*rt), reloc_entries_size,
 			       &reloc_table_size))
 		return -EINVAL;
-	if (check_add_overflow(reloc_table_size, rt->payload_offset,
+	if (check_add_overflow(reloc_table_size, rt->padding_size,
 			       &reloc_table_size))
 		return -EINVAL;
 

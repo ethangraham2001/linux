@@ -83,13 +83,14 @@ struct reloc_entry {
  * input.
  *
  * @num_entries: the number of pointer relocations.
- * @payload_offset: the number of padded bytes between the last relocation in
- *	entries, and the start of the payload data.
+ * @padding_size: the number of padded bytes between the last relocation in
+ *	entries, and the start of the payload data. This should be at least
+ *	8 bytes, as it is used for poisoning.
  * @entries: array of relocations.
  */
 struct reloc_table {
 	uint32_t num_entries;
-	uint32_t payload_offset;
+	uint32_t padding_size;
 	struct reloc_entry entries[];
 };
 
@@ -171,7 +172,7 @@ __kfuzztest_debug_header(struct reloc_region_array *regions,
 	}
 
 	pr_info("reloc_table: { num_entries = %u, padding = %u } @ offset 0x%lx",
-		rt->num_entries, rt->payload_offset,
+		rt->num_entries, rt->padding_size,
 		(char *)rt - (char *)regions);
 	for (i = 0; i < rt->num_entries; i++) {
 		pr_info("  reloc_%u: { src: %u, offset: 0x%x, dst: %u }", i,
@@ -293,8 +294,6 @@ static_assert(sizeof(struct kfuzztest_target) == 32,
 					      &payload_start, &payload_end);   \
 		if (ret)                                                       \
 			goto out;                                              \
-		__kfuzztest_debug_header(regions, rt, payload_start,           \
-					 payload_end);                         \
 		ret = __kfuzztest_relocate(regions, rt, payload_start,         \
 					   payload_end);                       \
 		if (ret)                                                       \
