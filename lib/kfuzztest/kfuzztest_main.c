@@ -11,7 +11,12 @@
 #include <linux/debugfs.h>
 #include <linux/fs.h>
 #include <linux/kfuzztest.h>
+#include <linux/module.h>
 #include <linux/printk.h>
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
+MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
 extern const struct kfuzztest_target __kfuzztest_targets_start[];
 extern const struct kfuzztest_target __kfuzztest_targets_end[];

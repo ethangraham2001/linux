@@ -3,11 +3,9 @@
 #ifndef KFUZZTEST_H
 #define KFUZZTEST_H
 
-#include <linux/module.h>
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Ethan Graham <ethangraham@google.com>");
-MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
+#include <linux/fs.h>
+#include <linux/printk.h>
+#include <linux/types.h>
 
 /**
  * @brief The KFuzzTest Input Serialization Format
@@ -45,13 +43,13 @@ MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
  * struct reloc_region - Describes a single contiguous memory region in the
  * payload.
  *
- * @start: The byte offset of this region from the start of the payload, which
+ * @offset: The byte offset of this region from the start of the payload, which
  *	should be aligned to the alignment requirements of the region's
  *	underlying type.
  * @size: The size of this region in bytes.
  */
 struct reloc_region {
-	uint32_t start;
+	uint32_t offset;
 	uint32_t size;
 };
 
@@ -95,6 +93,7 @@ struct reloc_table {
 	struct reloc_entry entries[];
 };
 
+/* Helper for copying input data from userspace. */
 int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
 				size_t len, loff_t *off, void *arg,
 				size_t arg_size);
@@ -155,7 +154,7 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
  * Dump some information on the parsed headers and payload. Can be useful for
  * debugging inputs when writing an encoder for the KFuzzTest input format.
  */
-__attribute__((unused)) static void
+__attribute__((unused)) static inline void
 __kfuzztest_debug_header(struct reloc_region_array *regions,
 			 struct reloc_table *rt, void *payload_start,
 			 void *payload_end)
@@ -165,7 +164,7 @@ __kfuzztest_debug_header(struct reloc_region_array *regions,
 		regions);
 	for (i = 0; i < regions->num_regions; i++) {
 		pr_info("  region_%u: { start: 0x%x, size: 0x%x }", i,
-			regions->regions[i].start, regions->regions[i].size);
+			regions->regions[i].offset, regions->regions[i].size);
 	}
 
 	pr_info("reloc_table: { num_entries = %u, padding = %u } @ offset 0x%lx",
@@ -188,6 +187,11 @@ struct kfuzztest_target {
 	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf,
 				  size_t len, loff_t *off);
 } __attribute__((aligned(32)));
+
+/*
+ * Enforce a fixed struct size to ensure a consistent stride when iterating
+ * over the array of these structs in the dedicated ELF section.
+ */
 static_assert(sizeof(struct kfuzztest_target) == 32,
 	      "struct kfuzztest_target should have size 32");
 
@@ -269,17 +273,15 @@ static_assert(sizeof(struct kfuzztest_target) == 32,
 						      const char __user *buf,  \
 						      size_t len, loff_t *off) \
 	{                                                                      \
-		int ret;                                                       \
+		void *payload_start, *payload_end, *buffer;                    \
 		struct reloc_region_array *regions;                            \
 		struct reloc_table *rt;                                        \
-		void *payload_start, *payload_end, *buffer;                    \
 		test_arg_type *arg;                                            \
+		int ret;                                                       \
                                                                                \
 		buffer = kmalloc(len, GFP_KERNEL);                             \
 		if (!buffer)                                                   \
 			return -ENOMEM;                                        \
-		else if (IS_ERR(buffer))                                       \
-			return PTR_ERR(buffer);                                \
 		ret = __kfuzztest_write_cb_common(filp, buf, len, off, buffer, \
 						  len);                        \
 		if (ret)                                                       \
@@ -288,6 +290,8 @@ static_assert(sizeof(struct kfuzztest_target) == 32,
 					      &payload_start, &payload_end);   \
 		if (ret)                                                       \
 			goto out;                                              \
+		__kfuzztest_debug_header(regions, rt, payload_start,           \
+					 payload_end);                         \
 		ret = __kfuzztest_relocate(regions, rt, payload_start,         \
 					   payload_end);                       \
 		if (ret)                                                       \
@@ -303,7 +307,7 @@ out:                                                                           \
 	static void kfuzztest_logic_##test_name(                               \
 		test_arg_type *arg, struct reloc_region_array *regions)
 
-enum kfuzztest_constraint_type : uint8_t {
+enum kfuzztest_constraint_type {
 	EXPECT_EQ = 0,
 	EXPECT_NE,
 	EXPECT_LE,
@@ -346,6 +350,10 @@ struct kfuzztest_constraint {
 	enum kfuzztest_constraint_type type;
 } __attribute__((aligned(64)));
 
+/*
+ * Enforce a fixed struct size to ensure a consistent stride when iterating
+ * over the array of these structs in the dedicated ELF section.
+ */
 static_assert(sizeof(struct kfuzztest_constraint) == 64,
 	      "struct kfuzztest_constraint should have size 64");
 
@@ -388,10 +396,6 @@ static_assert(sizeof(struct kfuzztest_constraint) == 64,
 		return;                                                      \
 	__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, lower_bound,          \
 				      upper_bound, EXPECT_IN_RANGE)
-
-#define KFUZZTEST_EXPECT_LEN(expected_len, actual_len) \
-	if ((expected_len) != (actual_len))            \
-		return;
 
 /**
  * Annotations express attributes about structure fields that can't be easily
@@ -442,6 +446,13 @@ struct kfuzztest_annotation {
 	enum kfuzztest_annotation_attribute attrib;
 } __attribute__((aligned(32)));
 
+/*
+ * Enforce a fixed struct size to ensure a consistent stride when iterating
+ * over the array of these structs in the dedicated ELF section.
+ */
+static_assert(sizeof(struct kfuzztest_annotation) == 32,
+	      "struct kfuzztest_annotation should have size 32");
+
 #define __KFUZZTEST_ANNOTATE(arg_type, field, linked_field, attribute)       \
 	static struct kfuzztest_annotation __annotation_##arg_type##_##field \
 		__attribute__((__section__(".kfuzztest_annotation"),         \
@@ -477,5 +488,12 @@ struct kfuzztest_annotation {
 /** Get the size of a payload region from within a FUZZ_TEST body */
 #define KFUZZTEST_REGION_SIZE(n) \
 	((n) < (regions->num_regions) ? (regions->regions[n].size) : 0)
+
+/**
+ * The end of the input should be padded by at least this number of bytes as
+ * it is poisoned to detect out of bounds accesses at the end of the last 
+ * region.
+ */
+#define KFUZZTEST_TAIL_POISON_SIZE (0x8)
 
 #endif /* KFUZZTEST_H */
