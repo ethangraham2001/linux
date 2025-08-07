@@ -151,6 +151,37 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 			 struct reloc_table *rt, void *payload_start,
 			 void *payload_end);
 
+/*
+ * Dump some information on the parsed headers and payload. Can be useful for
+ * debugging inputs when writing an encoder for the KFuzzTest input format.
+ */
+__attribute__((unused)) static void
+__kfuzztest_debug_header(struct reloc_region_array *regions,
+			 struct reloc_table *rt, void *payload_start,
+			 void *payload_end)
+{
+	uint32_t i;
+	pr_info("regions: { num_regions = %u } @ %px", regions->num_regions,
+		regions);
+	for (i = 0; i < regions->num_regions; i++) {
+		pr_info("  region_%u: { start: 0x%x, size: 0x%x }", i,
+			regions->regions[i].start, regions->regions[i].size);
+	}
+
+	pr_info("reloc_table: { num_entries = %u, padding = %u } @ offset 0x%lx",
+		rt->num_entries, rt->payload_offset,
+		(char *)rt - (char *)regions);
+	for (i = 0; i < rt->num_entries; i++) {
+		pr_info("  reloc_%u: { src: %u, offset: 0x%x, dst: %u }", i,
+			rt->entries[i].region_id, rt->entries[i].region_offset,
+			rt->entries[i].value);
+	}
+
+	pr_info("payload: [0x%lx, 0x%lx)",
+		(char *)payload_start - (char *)regions,
+		(char *)payload_end - (char *)regions);
+}
+
 struct kfuzztest_target {
 	const char *name;
 	const char *arg_type_name;
