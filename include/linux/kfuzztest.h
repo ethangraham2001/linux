@@ -17,23 +17,23 @@
  * further kernel allocations. Pointers are patched internally using a "region"
  * system where each region corresponds to some pointed-to data.
  *
- * Regions should be padded to respect alignment constraints of their
- * underlying types. These padded regions are poisoned by KFuzzTest to ensure
- * that KASAN catches OOB accesses.
+ * Regions should be padded to respect alignment constraints of their underlying
+ * types, and should be followed by at least 8 bytes of padding. These padded
+ * regions are poisoned by KFuzzTest to ensure that KASAN catches OOB accesses.
  *
  * The format consists of three main components:
  * 1. A reloc_region_array: Defines the memory layout of the target structure
  *	by partitioning the payload into logical regions. Each logical region
  *	should contain the byte representation of the type that it represents,
- *	including any necessary padding.
+ *	including any necessary padding. The region descriptors should be
+ *	ordered by offset ascending.
  * 2. A reloc_table: Provides "linking" instructions that tell the kernel how
  *	to patch pointer fields to point to the correct regions. By design,
  *	the first region (index 0) is passed as input into a FUZZ_TEST.
  * 3. A Payload: The raw binary data for the structure and its associated
  *	buffers. This should be aligned to the maximum alignment of all
  *	regions to satisfy alignment requirements of the input types, but this
- *	isn't checked by the parser. The payload should have at least 8 bytes
- *	of trailing padding.
+ *	isn't checked by the parser.
  *
  * For a detailed specification of the binary layout see the full documentation
  * at: Documentation/dev-tools/kfuzztest.rst
@@ -145,6 +145,9 @@ int __kfuzztest_parse_input(void *input, size_t input_size,
  *
  * Returns: 0 on success, or a negative error code if the relocation data is
  * found to be corrupt (e.g., invalid pointers).
+ *
+ * NOTE: this function only performs basic input validation. Full input
+ * validation is handled during parsing by __kfuzztest_parse_input.
  */
 int __kfuzztest_relocate(struct reloc_region_array *regions,
 			 struct reloc_table *rt, void *payload_start,
@@ -489,11 +492,19 @@ static_assert(sizeof(struct kfuzztest_annotation) == 32,
 #define KFUZZTEST_REGION_SIZE(n) \
 	((n) < (regions->num_regions) ? (regions->regions[n].size) : 0)
 
+/*
+ * FIXME: These are both defined in `mm/kasan/kasan.h`, but the build breaks
+ * if we define them in `include/linux/kasan.h` Since these values are unlikely
+ * to change, we redefine them here.
+ */
+#define __KASAN_SLAB_REDZONE 0xFC
+#define __KASAN_GRANULE_SIZE 0x8
+
 /**
  * The end of the input should be padded by at least this number of bytes as
  * it is poisoned to detect out of bounds accesses at the end of the last 
  * region.
  */
-#define KFUZZTEST_TAIL_POISON_SIZE (0x8)
+#define KFUZZTEST_POISON_SIZE __KASAN_GRANULE_SIZE
 
 #endif /* KFUZZTEST_H */

@@ -18,17 +18,17 @@ static bool __kfuzztest_input_is_valid(struct reloc_region_array *regions,
 				       void *payload_start, void *payload_end)
 {
 	size_t payload_size = (char *)payload_end - (char *)payload_start;
+	struct reloc_region reg, next_reg;
 	size_t usable_payload_size;
 	uint32_t region_end_offset;
 	struct reloc_entry reloc;
-	struct reloc_region reg;
 	uint32_t i;
 
 	if ((char *)payload_start > (char *)payload_end)
 		return false;
-	if (payload_size < KFUZZTEST_TAIL_POISON_SIZE)
+	if (payload_size < KFUZZTEST_POISON_SIZE)
 		return false;
-	usable_payload_size = payload_size - KFUZZTEST_TAIL_POISON_SIZE;
+	usable_payload_size = payload_size - KFUZZTEST_POISON_SIZE;
 
 	for (i = 0; i < regions->num_regions; i++) {
 		reg = regions->regions[i];
@@ -37,6 +37,19 @@ static bool __kfuzztest_input_is_valid(struct reloc_region_array *regions,
 			return false;
 		if ((size_t)region_end_offset > usable_payload_size)
 			return false;
+
+		if (i < regions->num_regions - 1) {
+			next_reg = regions->regions[i + 1];
+			if (reg.offset > next_reg.offset)
+				return false;
+			/*
+			 * Enforce the minimum poisonable gap between
+			 * consecutive regions.
+			 */
+			if (reg.offset + reg.size + KFUZZTEST_POISON_SIZE >
+			    next_reg.offset)
+				return false;
+		}
 	}
 
 	for (i = 0; i < rt->num_entries; i++) {
