@@ -2,17 +2,6 @@
 /* Copyright 2025 Google LLC */
 #include <linux/kfuzztest.h>
 
-int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
-				size_t len, loff_t *off, void *arg,
-				size_t arg_size)
-{
-	if (len != arg_size)
-		return -EINVAL;
-	if (simple_write_to_buffer((void *)arg, arg_size, off, buf, len) < 0)
-		return -EFAULT;
-	return 0;
-}
-
 static bool __kfuzztest_input_is_valid(struct reloc_region_array *regions,
 				       struct reloc_table *rt,
 				       void *payload_start, void *payload_end)

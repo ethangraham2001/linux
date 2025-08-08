@@ -94,11 +94,6 @@ struct reloc_table {
 	struct reloc_entry entries[];
 };
 
-/* Helper for copying input data from userspace. */
-int __kfuzztest_write_cb_common(struct file *filp, const char __user *buf,
-				size_t len, loff_t *off, void *arg,
-				size_t arg_size);
-
 /**
  * __kfuzztest_parse_input validates and parses the KFuzzTest input format.
  *
@@ -286,9 +281,8 @@ static_assert(sizeof(struct kfuzztest_target) == 32,
 		buffer = kmalloc(len, GFP_KERNEL);                             \
 		if (!buffer)                                                   \
 			return -ENOMEM;                                        \
-		ret = __kfuzztest_write_cb_common(filp, buf, len, off, buffer, \
-						  len);                        \
-		if (ret)                                                       \
+		ret = simple_write_to_buffer(buffer, len, off, buf, len);      \
+		if (ret < 0)                                                   \
 			goto out;                                              \
 		ret = __kfuzztest_parse_input(buffer, len, &regions, &rt,      \
 					      &payload_start, &payload_end);   \
