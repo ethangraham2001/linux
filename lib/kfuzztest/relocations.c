@@ -5,14 +5,19 @@
  * Copyright 2025 Google LLC
  */
 #include <linux/kasan.h>
+#include <linux/kfuzztest.h>
+
+#ifdef CONFIG_KASAN
 
 /**
- * Poison the half open interval [start, end], where end should be 8-byte 
- * aligned if it is not, then we cannot guarantee that the whole range will
- * be poisoned.
+ * kfuzztest_poison_range - poison the memory range [start, end)
  *
- * If start is not 8-byte-aligned, the remaining bytes in its 8-byte granule
- * can only be poisoned if CONFIG_KASAN_GENERIC is enabled.
+ * The exact behavior is subject to alignment with KASAN's 8-byte granule size:
+ *
+ * - If @start is unaligned, the initial partial granule at the beginning
+ *	of the range is only poisoned if CONFIG_KASAN_GENERIC is enabled.
+ * - The poisoning of the range only extends up to the last full granule
+ *	before @end. Any remaining bytes in a final partial granule are ignored.
  */
 static void kfuzztest_poison_range(void *start, void *end)
 {
@@ -44,6 +49,12 @@ static void kfuzztest_poison_range(void *start, void *end)
 			     poison_body_end - poison_body_start,
 			     __KASAN_SLAB_REDZONE, false);
 }
+
+#else /* CONFIG_KASAN */
+
+static inline void kfuzztest_poison_range(void *, void *) {}
+
+#endif /* CONFIG_KASAN */
 
 int __kfuzztest_relocate(struct reloc_region_array *regions,
 			 struct reloc_table *rt, void *payload_start,
@@ -81,8 +92,7 @@ int __kfuzztest_relocate(struct reloc_region_array *regions,
 			poison_end =
 				payload_start + regions->regions[i + 1].offset;
 		else
-			/* The last region is padded with 8 bytes. */
-			poison_end = poison_start + 0x8;
+			poison_end = payload_end;
 
 		if ((char *)poison_end > (char *)payload_end)
 			return -EINVAL;
