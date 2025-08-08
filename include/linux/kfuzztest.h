@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright 2025 Google LLC */
+/*
+ * The Kernel Fuzz Testing Framework (KFuzzTest) API for defining fuzz targets
+ * for internal kernel functions.
+ *
+ * For more information please see Documentation/dev-tools/kfuzztest.rst.
+ *
+ * Copyright 2025 Google LLC
+ */
 #ifndef KFUZZTEST_H
 #define KFUZZTEST_H
 

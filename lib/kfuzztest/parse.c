@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* Copyright 2025 Google LLC */
+/*
+ * KFuzzTest input parsing and validation.
+ *
+ * Copyright 2025 Google LLC
+ */
 #include <linux/kfuzztest.h>
 
 static bool __kfuzztest_input_is_valid(struct reloc_region_array *regions,

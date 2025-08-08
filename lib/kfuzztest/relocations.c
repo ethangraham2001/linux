@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright 2025 Google LLC */
-#include <linux/kfuzztest.h>
+/*
+ * KFuzzTest input relocation and memory poisoning.
+ *
+ * Copyright 2025 Google LLC
+ */
 #include <linux/kasan.h>
 
 /**

@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Copyright 2025 Google LLC */
+/*
+ * This file contains some KFuzzTest target examples.
+ *
+ * Copyright 2025 Google LLC
+ */
 #include <linux/kfuzztest.h>
 
 struct nested_buffers {
