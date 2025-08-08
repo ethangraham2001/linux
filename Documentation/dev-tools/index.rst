@@ -30,6 +30,7 @@ Documentation/process/debugging/index.rst
    kmemleak
    kcsan
    kfence
+   kfuzztest
    kselftest
    kunit/index
    ktap
