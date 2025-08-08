@@ -72,7 +72,7 @@ The following example illustrates how to create a fuzz target for a function
 		// 3. (Optional) Add constraints to define preconditions.
 		//    This check ensures 'arg->data' is not NULL. If the condition
 		//    is not met, the test exits early. This also creates metadata
-		//    to inform the fuzzer
+		//    to inform the fuzzer.
 		KFUZZTEST_EXPECT_NOT_NULL(process_data_inputs, data);
 
 		// 4. (Optional) Add annotations to provide semantic hints.
@@ -82,8 +82,8 @@ The following example illustrates how to create a fuzz target for a function
 		KFUZZTEST_ANNOTATE_LEN(process_data_inputs, len, data);
 
 		// 5. Call the kernel function with the provided inputs.
-		//    Memory errors like out-of-bounds accesses on 'arg->data'
-		//    will be detected by KASAN.
+		//    Memory errors like out-of-bounds accesses on 'arg->data' will
+		//    be detected by KASAN or other memory error detection tools.
 		process_data(arg->data, arg->len);
 	}
 
@@ -115,9 +115,9 @@ single kernel allocation and copy from userspace.
 The format consists of three main parts laid out sequentially: a region array,
 a relocation table, and the payload.::
 
-    +----------------+---------------------+-----------------+----------------+
-    |  region array  |  relocation table   |     padding     |    payload     |
-    +----------------+---------------------+-----------------+----------------+
+    +----------------+---------------------+-----------+----------------+
+    |  region array  |  relocation table   |  padding  |    payload     |
+    +----------------+---------------------+-----------+----------------+
 
 Region Array
 ~~~~~~~~~~~~
@@ -149,8 +149,9 @@ Relocation Table
 ~~~~~~~~~~~~~~~~
 
 The relocation table provides the instructions for the kernel to "hydrate" the
-payload by patching pointer fields. It contains an array of struct reloc_entry
-items. Each entry acts as a linking instruction, specifying:
+payload by patching pointer fields. It contains an array of
+``struct reloc_entry`` items. Each entry acts as a linking instruction,
+specifying:
 
 - The location of a pointer that needs to be patched (identified by a region 
   ID and an offset within that region).
@@ -173,7 +174,8 @@ according to their specified offsets.
   its own type's alignment.
 
 - Padding and Poisoning: The space between the end of one region's data and the
-  beginning of the next must be sufficient for padding. KFuzzTest poisons this
-  unused padding with KASAN, allowing for precise detection of out-of-bounds
-  memory accesses between adjacent buffers. This padding should be at least
-  ``KFUZZTEST_POISON_SIZE`` bytes as defined in `include/linux/kfuzztest.h``.
+  beginning of the next must be sufficient for padding. In KASAN builds,
+  KFuzzTest poisons this unused padding, allowing for precise detection of
+  out-of-bounds memory accesses between adjacent buffers. This padding should
+  be at least ``KFUZZTEST_POISON_SIZE`` bytes as defined in
+  `include/linux/kfuzztest.h``.
