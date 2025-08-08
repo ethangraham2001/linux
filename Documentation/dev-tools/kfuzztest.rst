@@ -50,7 +50,7 @@ structure, writing the test body using the ``FUZZ_TEST`` macro, and optionally
 adding metadata for the fuzzer.
 
 The following example illustrates how to create a fuzz target for a function
-``int process_data(const char *data, size_t len).``
+``int process_data(const char *data, size_t len)``.
 
 .. code-block:: c
 
