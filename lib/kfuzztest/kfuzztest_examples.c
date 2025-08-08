@@ -19,8 +19,8 @@ struct nested_buffers {
  *
  * | a | b | pad[8] | *a | pad[8] | *b |
  *
- * We expect to see a KASAN warning by overflowing one byte into the A buffer.
- *
+ * where the padded regions are poisoned. We expect to trigger a KASAN report by
+ * overflowing one byte into the `a` buffer.
  */
 FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 {
@@ -38,9 +38,9 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 	for (i = 0; i < arg->b_len; i++)
 		READ_ONCE(arg->b[i]);
 	/*
-	 * Check that all bytes in arg->a are accessible, and provoke an OOB
-	 * on the first byte to the right of the buffer which will trigger
-	 * a KASAN report.
+	 * Check that all bytes in arg->a are accessible, and provoke an OOB on
+	 * the first byte to the right of the buffer which will trigger a KASAN
+	 * report.
 	 */
 	for (i = 0; i <= arg->a_len; i++)
 		READ_ONCE(arg->a[i]);
@@ -51,6 +51,10 @@ struct some_buffer {
 	size_t buflen;
 };
 
+/**
+ * Tests that the region between struct some_buffer and the expanded *buf field
+ * is correctly poisoned by accessing the first byte before *buf.
+ */
 FUZZ_TEST(test_underflow_on_buffer, struct some_buffer)
 {
 	size_t i;
