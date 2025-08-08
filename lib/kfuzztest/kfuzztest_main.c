@@ -85,12 +85,10 @@ static int __init kfuzztest_init(void)
 	num_test_cases = __kfuzztest_targets_end - __kfuzztest_targets_start;
 
 	state.debugfs_state =
-		kmalloc(num_test_cases * sizeof(struct kfuzztest_debugfs_state),
+		kzalloc(num_test_cases * sizeof(struct kfuzztest_debugfs_state),
 			GFP_KERNEL);
 	if (!state.debugfs_state)
 		return -ENOMEM;
-	else if (IS_ERR(state.debugfs_state))
-		return PTR_ERR(state.debugfs_state);
 
 	/* Create the main "kfuzztest" directory in /sys/kernel/debug. */
 	state.kfuzztest_dir = debugfs_create_dir("kfuzztest", NULL);
