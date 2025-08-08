@@ -28,9 +28,6 @@ static void kfuzztest_poison_range(void *start, void *end)
 	uintptr_t poison_body_end;
 	size_t head_prefix_size;
 
-	if (!IS_ENABLED(CONFIG_KASAN))
-		return;
-
 	if (start_addr >= end_addr)
 		return;
 
