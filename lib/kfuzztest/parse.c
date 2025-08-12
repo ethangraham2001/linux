@@ -7,52 +7,6 @@
 #include <linux/kfuzztest.h>
 #include <linux/kasan.h>
 
-#ifdef CONFIG_KASAN
-
-/**
- * kfuzztest_poison_range - poison the memory range [start, end)
- *
- * The exact behavior is subject to alignment with KASAN's 8-byte granule size:
- *
- * - If @start is unaligned, the initial partial granule at the beginning
- *	of the range is only poisoned if CONFIG_KASAN_GENERIC is enabled.
- * - The poisoning of the range only extends up to the last full granule
- *	before @end. Any remaining bytes in a final partial granule are ignored.
- */
-static void kfuzztest_poison_range(void *start, void *end)
-{
-	uintptr_t end_addr = ALIGN_DOWN((uintptr_t)end, __KASAN_GRANULE_SIZE);
-	uintptr_t start_addr = (uintptr_t)start;
-	uintptr_t head_granule_start;
-	uintptr_t poison_body_start;
-	uintptr_t poison_body_end;
-	size_t head_prefix_size;
-
-	if (start_addr >= end_addr)
-		return;
-
-	head_granule_start = ALIGN_DOWN(start_addr, __KASAN_GRANULE_SIZE);
-	head_prefix_size = start_addr - head_granule_start;
-
-	if (IS_ENABLED(CONFIG_KASAN_GENERIC) && head_prefix_size > 0)
-		kasan_poison_last_granule((void *)head_granule_start, head_prefix_size);
-
-	poison_body_start = ALIGN(start_addr, __KASAN_GRANULE_SIZE);
-	poison_body_end = ALIGN_DOWN(end_addr, __KASAN_GRANULE_SIZE);
-
-	if (poison_body_start < poison_body_end)
-		kasan_poison((void *)poison_body_start, poison_body_end - poison_body_start, __KASAN_SLAB_REDZONE,
-			     false);
-}
-
-#else /* CONFIG_KASAN */
-
-static inline void kfuzztest_poison_range(void *, void *)
-{
-}
-
-#endif /* CONFIG_KASAN */
-
 static int kfuzztest_relocate_v0(struct reloc_region_array *regions, struct reloc_table *rt, void *payload_start,
 				 void *payload_end)
 {
@@ -90,11 +44,11 @@ static int kfuzztest_relocate_v0(struct reloc_region_array *regions, struct relo
 		if ((char *)poison_end > (char *)payload_end)
 			return -EINVAL;
 
-		kfuzztest_poison_range(poison_start, poison_end);
+		kasan_poison_range(poison_start, poison_end - poison_start);
 	}
 
 	/* Poison the padded area preceding the payload. */
-	kfuzztest_poison_range((char *)payload_start - rt->padding_size, payload_start);
+	kasan_poison_range((char *)payload_start - rt->padding_size, rt->padding_size);
 	return 0;
 }
 

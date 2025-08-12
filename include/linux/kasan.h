@@ -102,6 +102,21 @@ static inline bool kasan_has_integrated_init(void)
 }
 
 #ifdef CONFIG_KASAN
+
+/**
+ * kasan_poison_range - poison the memory range [start, start + size)
+ *
+ * The exact behavior is subject to alignment with KASAN_GRANULE_SIZE, defined
+ * in <mm/kasan/kasan.h>.
+ *
+ * - If @start is unaligned, the initial partial granule at the beginning
+ *	of the range is only poisoned if CONFIG_KASAN_GENERIC is enabled.
+ * - The poisoning of the range only extends up to the last full granule before
+ *	the end of the range. Any remaining bytes in a final partial granule are
+ *	ignored.
+ */
+void kasan_poison_range(const void *start, size_t size);
+
 void __kasan_unpoison_range(const void *addr, size_t size);
 static __always_inline void kasan_unpoison_range(const void *addr, size_t size)
 {
@@ -125,34 +140,6 @@ static __always_inline bool kasan_unpoison_pages(struct page *page,
 		return __kasan_unpoison_pages(page, order, init);
 	return false;
 }
-
-#ifdef CONFIG_KASAN_GENERIC
-
-/**
- * kasan_poison_last_granule - mark the last granule of the memory range as
- * inaccessible
- * @address: range start address, must be aligned to KASAN_GRANULE_SIZE
- * @size: range size
- *
- * This function is only available for the generic mode, as it's the only mode
- * that has partially poisoned memory granules.
- */
-void kasan_poison_last_granule(const void *address, size_t size);
-
-#else /* CONFIG_KASAN_GENERIC */
-
-static inline void kasan_poison_last_granule(const void *address, size_t size) { }
-
-#endif /* CONFIG_KASAN_GENERIC */
-
-/**
- * kasan_poison - mark the memory range as inaccessible
- * @addr: range start address, must be aligned to KASAN_GRANULE_SIZE
- * @size: range size, must be aligned to KASAN_GRANULE_SIZE
- * @value: value that's written to metadata for the range
- * @init: whether to initialize the memory range (only for hardware tag-based)
- */
-void kasan_poison(const void *addr, size_t size, u8 value, bool init);
 
 void __kasan_poison_slab(struct slab *slab);
 static __always_inline void kasan_poison_slab(struct slab *slab)
@@ -430,6 +417,7 @@ static __always_inline bool kasan_check_byte(const void *addr)
 
 #else /* CONFIG_KASAN */
 
+static inline void kasan_poison_range(const void *start, size_t size) {}
 static inline void kasan_unpoison_range(const void *address, size_t size) {}
 static inline void kasan_poison_pages(struct page *page, unsigned int order,
 				      bool init) {}

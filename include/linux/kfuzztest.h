@@ -448,19 +448,11 @@ static_assert(sizeof(struct kfuzztest_annotation) == 32, "struct kfuzztest_annot
 
 #define KFUZZTEST_REGIONID_NULL U32_MAX
 
-/*
- * FIXME: These are both defined in `mm/kasan/kasan.h`, but the build breaks
- * if we define them in `include/linux/kasan.h` Since these values are unlikely
- * to change, we redefine them here.
- */
-#define __KASAN_SLAB_REDZONE 0xFC
-#define __KASAN_GRANULE_SIZE 0x8
-
 /**
  * The end of the input should be padded by at least this number of bytes as
  * it is poisoned to detect out of bounds accesses at the end of the last
  * region.
  */
-#define KFUZZTEST_POISON_SIZE __KASAN_GRANULE_SIZE
+#define KFUZZTEST_POISON_SIZE 0x8
 
 #endif /* KFUZZTEST_H */
