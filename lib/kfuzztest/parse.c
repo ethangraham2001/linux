@@ -191,16 +191,16 @@ int kfuzztest_parse_and_relocate(void *input, size_t input_size, void **arg_ret)
 {
 	u32 version, magic;
 
-	if (input_size < sizeof(u64))
+	if (input_size < sizeof(u32) + sizeof(u32))
 		return -EINVAL;
 
-	version = KFUZZTEST_GET_VERSION(*(u64 *)input);
-	magic = KFUZZTEST_GET_MAGIC(*(u64 *)input);
+	magic = *(u32 *)input;
 	if (magic != KFUZZTEST_HEADER_MAGIC)
 		return -EINVAL;
 
+	version = *(u32 *)((char *)input + sizeof(u32));
 	switch (version) {
-	case 0:
+	case KFUZZTEST_V0:
 		return kfuzztest_parse_and_relocate_v0(input + sizeof(u64), input_size - sizeof(u64), arg_ret);
 	}
 

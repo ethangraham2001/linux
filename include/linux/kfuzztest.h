@@ -16,8 +16,6 @@
 
 #define KFUZZTEST_HEADER_MAGIC (0xBFACE)
 #define KFUZZTEST_V0 (0)
-#define KFUZZTEST_GET_MAGIC(prefix) ((u32)(prefix & 0xFFFFFFFF))
-#define KFUZZTEST_GET_VERSION(prefix) ((u32)((prefix >> 32) & 0xFFFFFFFF))
 
 /**
  * @brief The KFuzzTest Input Serialization Format
@@ -34,19 +32,18 @@
  * regions are poisoned by KFuzzTest to ensure that KASAN catches OOB accesses.
  *
  * The format consists of a prefix and three main components:
- * 0. An 8-byte prefix: Contains KFUZZTEST_MAGIC in the four least significant
- *	bytes, and the version number in the 4 most significant bytes. The aim
- *	of this is to ensure backwards compatibility of userspace fuzzers in the 
- *	event of future format changes.
- * 1. A reloc_region_array: Defines the memory layout of the target structure
+ * 1. An 8-byte header: Contains KFUZZTEST_MAGIC in the first 4 bytes, and the
+ *	version number in the subsequent 4 bytes. This ensures backwards
+ *	compatibility in the event of future format changes.
+ * 2. A reloc_region_array: Defines the memory layout of the target structure
  *	by partitioning the payload into logical regions. Each logical region
  *	should contain the byte representation of the type that it represents,
  *	including any necessary padding. The region descriptors should be
  *	ordered by offset ascending.
- * 2. A reloc_table: Provides "linking" instructions that tell the kernel how
+ * 3. A reloc_table: Provides "linking" instructions that tell the kernel how
  *	to patch pointer fields to point to the correct regions. By design,
  *	the first region (index 0) is passed as input into a FUZZ_TEST.
- * 3. A Payload: The raw binary data for the structure and its associated
+ * 4. A Payload: The raw binary data for the structure and its associated
  *	buffers. This should be aligned to the maximum alignment of all
  *	regions to satisfy alignment requirements of the input types, but this
  *	isn't checked by the parser.

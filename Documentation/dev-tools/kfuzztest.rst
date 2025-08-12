@@ -1,11 +1,12 @@
 .. SPDX-License-Identifier: GPL-2.0
 .. Copyright 2025 Google LLC
 
+=========================================
 Kernel Fuzz Testing Framework (KFuzzTest)
 =========================================
 
 Overview
---------
+========
 
 The Kernel Fuzz Testing Framework (KFuzzTest) is a framework designed to expose
 internal kernel functions to a userspace fuzzing engine.
@@ -34,21 +35,30 @@ The framework consists of four main components:
    in production kernels.
 
 Supported Architectures
------------------------
+=======================
 
 KFuzzTest is currently only supported for x86_64.
 
 Usage
------
+=====
 
 To enable KFuzzTest, configure the kernel with::
 
 	CONFIG_KFUZZTEST=y
 
-which depends on ``CONFIG_DEBUGFS`` for receiving userspace inputs.
+which depends on ``CONFIG_DEBUGFS`` for receiving userspace inputs, and
+``CONFIG_DEBUG_KERNEL`` as an additional guardrail for preventing KFuzzTest
+from finding its way into a production build accidentally.
+
+The KFuzzTest sample fuzz targets can be built in with
+``CONFIG_SAMPLE_KFUZZTEST``.
+
+KFuzzTest currently only supports code that is built into the kernel, as the
+core module's startup process discovers fuzz targets, constraints, and
+annotations from a dedicated ELF section during startup.
 
 Declaring a KFuzzTest target
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+----------------------------
 
 A fuzz target is defined directly in a .c file, typically alongside the function
 being tested. This process involves three main parts: defining an input
@@ -120,7 +130,7 @@ KFuzzTest provides two families of macros to improve the quality of fuzzing:
   field, which is a common pattern in C APIs.
 
 Input Format
-------------
+============
 
 KFuzzTest targets receive their inputs from userspace via a write to a dedicated
 debugfs ``/sys/kernel/debug/kfuzztest/<test-name>/input``.
@@ -130,15 +140,24 @@ specific serialization format. This format is designed to allow complex,
 pointer-rich C structures to be represented in a flat buffer, requiring only a
 single kernel allocation and copy from userspace.
 
-The format consists of three main parts laid out sequentially: a region array,
-a relocation table, and the payload.::
+An input is first prefixed by an 8-byte header containing a magic value in the
+first four bytes, defined as ``KFUZZTEST_HEADER_MAGIC`` in
+`<include/linux/kfuzztest.h>``, and a version number in the subsequent four
+bytes.
+
+Version 0
+---------
+
+In version 0 (i.e., when the version number in the 8-byte header is equal to 0),
+the input format consists of three main parts laid out sequentially: a region
+array, a relocation table, and the payload.::
 
     +----------------+---------------------+-----------+----------------+
     |  region array  |  relocation table   |  padding  |    payload     |
     +----------------+---------------------+-----------+----------------+
 
 Region Array
-~~~~~~~~~~~~
+^^^^^^^^^^^^
 
 This component is a header that describes how the raw data in the Payload is
 partitioned into logical memory regions. It consists of a count of regions
@@ -163,8 +182,15 @@ represent data buffers pointed to by fields within that struct. Region array
 entries must be ordered by offset ascending, and must not overlap with one
 another.
 
+To satisfy C language alignment requirements and prevent potential hardware
+faults, the memory address of each region's data must be correctly aligned for
+the type it represents. The framework allocates a base buffer that is suitably
+aligned for any C type. Therefore, the userspace tool that generates the input
+is responsible for calculating each region's offset within the payload to ensure
+this alignment is maintained.
+
 Relocation Table
-~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^
 
 The relocation table provides the instructions for the kernel to "hydrate" the
 payload by patching pointer fields. It contains an array of
@@ -180,8 +206,22 @@ specifying:
 This table also specifies the amount of padding between its end and the start
 of the payload, which should be at least 8 bytes.
 
+.. code-block:: c
+
+	struct reloc_entry {
+		uint32_t region_id;
+		uint32_t region_offset;
+		uint32_t value;
+	};
+
+	struct reloc_table {
+		uint32_t num_entries;
+		uint32_t padding_size;
+		struct reloc_entry entries[];
+    };
+
 Payload
-~~~~~~~
+^^^^^^^
 
 The payload contains the raw binary data for all regions, concatenated together
 according to their specified offsets.
