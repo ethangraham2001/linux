@@ -188,6 +188,8 @@ int kfuzztest_parse_and_relocate(void *input, size_t input_size, void **arg_ret)
 
 	version = KFUZZTEST_GET_VERSION(*(u64 *)input);
 	magic = KFUZZTEST_GET_MAGIC(*(u64 *)input);
+	if (magic != KFUZZTEST_HEADER_MAGIC)
+		return -EINVAL;
 
 	switch (version) {
 	case 0:
