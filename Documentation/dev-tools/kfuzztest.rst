@@ -60,36 +60,48 @@ The following example illustrates how to create a fuzz target for a function
 
 .. code-block:: c
 
-	// 1. Define a struct to model the inputs for the function under test.
-	//    Each field corresponds to an argument needed by the function.
+	/*
+	 * 1. Define a struct to model the inputs for the function under test.
+	 *    Each field corresponds to an argument needed by the function.
+	 */
 	struct process_data_inputs {
 		const char *data;
 		size_t len;
 	};
 
-	// 2. Define the fuzz target using the FUZZ_TEST macro.
-	//    The first parameter is a unique name for the target.
-	//    The second parameter is the input struct defined above.
+	/*
+	 * 2. Define the fuzz target using the FUZZ_TEST macro.
+	 *    The first parameter is a unique name for the target.
+	 *    The second parameter is the input struct defined above.
+	 */
 	FUZZ_TEST(test_process_data, struct process_data_inputs)
 	{
-		// Within this body, the 'arg' variable is a pointer to a
-		// fully initialized 'struct process_data_inputs'.
+		/*
+		 * Within this body, the 'arg' variable is a pointer to a
+		 * fully initialized 'struct process_data_inputs'.
+		 */
 
-		// 3. (Optional) Add constraints to define preconditions.
-		//    This check ensures 'arg->data' is not NULL. If the condition
-		//    is not met, the test exits early. This also creates metadata
-		//    to inform the fuzzer.
+		/*
+		 * 3. (Optional) Add constraints to define preconditions.
+		 *    This check ensures 'arg->data' is not NULL. If the condition
+		 *    is not met, the test exits early. This also creates metadata
+		 *    to inform the fuzzer.
+		 */
 		KFUZZTEST_EXPECT_NOT_NULL(process_data_inputs, data);
 
-		// 4. (Optional) Add annotations to provide semantic hints.
-		//    This annotation informs the fuzzer that the 'len' field
-		//    is the length of the buffer pointed to by 'data'.
-		//    Annotations do not add any runtime checks.
+		/*
+		 * 4. (Optional) Add annotations to provide semantic hints.
+		 *    This annotation informs the fuzzer that the 'len' field
+		 *    is the length of the buffer pointed to by 'data'.
+		 *    Annotations do not add any runtime checks.
+		 */
 		KFUZZTEST_ANNOTATE_LEN(process_data_inputs, len, data);
 
-		// 5. Call the kernel function with the provided inputs.
-		//    Memory errors like out-of-bounds accesses on 'arg->data' will
-		//    be detected by KASAN or other memory error detection tools.
+		/*
+		 * 5. Call the kernel function with the provided inputs.
+		 *    Memory errors like out-of-bounds accesses on 'arg->data' will
+		 *    be detected by KASAN or other memory error detection tools.
+		 */
 		process_data(arg->data, arg->len);
 	}
 
