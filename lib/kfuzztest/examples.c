@@ -31,8 +31,8 @@ FUZZ_TEST(test_overflow_on_nested_buffer, struct nested_buffers)
 	KFUZZTEST_ANNOTATE_LEN(nested_buffers, a_len, a);
 	KFUZZTEST_ANNOTATE_LEN(nested_buffers, b_len, b);
 
-	pr_info("a = [%px, %px)", arg->a, arg->a + KFUZZTEST_REGION_SIZE(1));
-	pr_info("b = [%px, %px)", arg->b, arg->b + KFUZZTEST_REGION_SIZE(2));
+	pr_info("a = [%px, %px)", arg->a, arg->a + arg->a_len);
+	pr_info("b = [%px, %px)", arg->b, arg->b + arg->b_len);
 
 	/* Ensure that all bytes in arg->b are accessible. */
 	for (i = 0; i < arg->b_len; i++)

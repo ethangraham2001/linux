@@ -14,6 +14,11 @@
 #include <linux/printk.h>
 #include <linux/types.h>
 
+#define KFUZZTEST_HEADER_MAGIC (0xBFACE)
+#define KFUZZTEST_V0 (0)
+#define KFUZZTEST_GET_MAGIC(prefix) ((u32)(prefix & 0xFFFFFFFF))
+#define KFUZZTEST_GET_VERSION(prefix) ((u32)((prefix >> 32) & 0xFFFFFFFF))
+
 /**
  * @brief The KFuzzTest Input Serialization Format
  *
@@ -28,7 +33,11 @@
  * types, and should be followed by at least 8 bytes of padding. These padded
  * regions are poisoned by KFuzzTest to ensure that KASAN catches OOB accesses.
  *
- * The format consists of three main components:
+ * The format consists of a prefix and three main components:
+ * 0. An 8-byte prefix: Contains KFUZZTEST_MAGIC in the four least significant
+ *	bytes, and the version number in the 4 most significant bytes. The aim
+ *	of this is to ensure backwards compatibility of userspace fuzzers in the 
+ *	event of future format changes.
  * 1. A reloc_region_array: Defines the memory layout of the target structure
  *	by partitioning the payload into logical regions. Each logical region
  *	should contain the byte representation of the type that it represents,
@@ -100,101 +109,53 @@ struct reloc_table {
 };
 
 /**
- * __kfuzztest_parse_input - parse and validate a KFuzzTest input
+ * kfuzztest_parse_and_relocate - validate and relocate a KFuzzTest input
  *
- * @input: A buffer containing the serialized test case.
- * @input_size: The size in bytes of the @input buffer.
- * @ret_regions: On success, updated to point to the relocation region array
- *	within the @input buffer.
- * @ret_reloc_table: On success, updated to point to the relocation table
- *	within the @input buffer.
- * @ret_payload_start: On success, updated to point to the start of the data
- *	payload within the @input buffer.
- * @ret_payload_end: On success, updated to point to the first byte after the
- *	end of the data payload.
- *
- * Returns: 0 on success, or a negative error code if the input is corrupted.
+ * @input: A buffer containing the serialized input for a fuzz target.
+ * @input_size: the size in bytes of the @input buffer.
+ * @arg_ret: return pointer for the test case's input structure.
  */
-int __kfuzztest_parse_input(void *input, size_t input_size,
-			    struct reloc_region_array **ret_regions,
-			    struct reloc_table **ret_reloc_table,
-			    void **ret_payload_start, void **ret_payload_end);
-
-/**
- * __kfuzztest_relocate - resolve relocations in a serialized payload
- *
- * @regions: The relocation region array parsed from the input.
- * @rt: The relocation table parsed from the input.
- * @payload_start: A pointer to the start of the data payload.
- * @payload_end: A pointer to the first byte after the end of the payload.
- *
- * This function iterates through the region array and relocation table to
- * patch the pointers inside of the payload, reconstructing pointer-pointee
- * relationships between the logical regions of the fuzz driver input. For
- * each entry in @rt, it calculates the address of a pointer field within the
- * payload and sets it to the start address of its target region, or a NULL
- * pointer if marked with KFUZZTEST_REGIONID_NULL.
- *
- * The padded areas between each region are poisoned with a KASAN slab redzone
- * to enable the detection of byte-accurate OOB accesses in the fuzz logic.
- *
- * Returns: 0 on success, or a negative error code if the relocation data is
- * found to be corrupt (e.g., invalid pointers).
- *
- * NOTE: this function only performs basic input validation. Full input
- * validation is handled during parsing by __kfuzztest_parse_input.
- */
-int __kfuzztest_relocate(struct reloc_region_array *regions,
-			 struct reloc_table *rt, void *payload_start,
-			 void *payload_end);
+int kfuzztest_parse_and_relocate(void *input, size_t input_size, void **arg_ret);
 
 /*
  * Dump some information on the parsed headers and payload. Can be useful for
  * debugging inputs when writing an encoder for the KFuzzTest input format.
  */
-__attribute__((unused)) static inline void
-__kfuzztest_debug_header(struct reloc_region_array *regions,
-			 struct reloc_table *rt, void *payload_start,
-			 void *payload_end)
+__attribute__((unused)) static inline void kfuzztest_debug_header(struct reloc_region_array *regions,
+								  struct reloc_table *rt, void *payload_start,
+								  void *payload_end)
 {
 	uint32_t i;
 
-	pr_info("regions: { num_regions = %u } @ %px", regions->num_regions,
-		regions);
+	pr_info("regions: { num_regions = %u } @ %px", regions->num_regions, regions);
 	for (i = 0; i < regions->num_regions; i++) {
-		pr_info("  region_%u: { start: 0x%x, size: 0x%x }", i,
-			regions->regions[i].offset, regions->regions[i].size);
+		pr_info("  region_%u: { start: 0x%x, size: 0x%x }", i, regions->regions[i].offset,
+			regions->regions[i].size);
 	}
 
-	pr_info("reloc_table: { num_entries = %u, padding = %u } @ offset 0x%lx",
-		rt->num_entries, rt->padding_size,
+	pr_info("reloc_table: { num_entries = %u, padding = %u } @ offset 0x%lx", rt->num_entries, rt->padding_size,
 		(char *)rt - (char *)regions);
 	for (i = 0; i < rt->num_entries; i++) {
-		pr_info("  reloc_%u: { src: %u, offset: 0x%x, dst: %u }", i,
-			rt->entries[i].region_id, rt->entries[i].region_offset,
-			rt->entries[i].value);
+		pr_info("  reloc_%u: { src: %u, offset: 0x%x, dst: %u }", i, rt->entries[i].region_id,
+			rt->entries[i].region_offset, rt->entries[i].value);
 	}
 
-	pr_info("payload: [0x%lx, 0x%lx)",
-		(char *)payload_start - (char *)regions,
+	pr_info("payload: [0x%lx, 0x%lx)", (char *)payload_start - (char *)regions,
 		(char *)payload_end - (char *)regions);
 }
 
 struct kfuzztest_target {
 	const char *name;
 	const char *arg_type_name;
-	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf,
-				  size_t len, loff_t *off);
+	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf, size_t len, loff_t *off);
 } __aligned(32);
 
 /*
  * Enforce a fixed struct size to ensure a consistent stride when iterating
  * over the array of these structs in the dedicated ELF section.
  */
-static_assert(sizeof(struct kfuzztest_target) == 32,
-	      "struct kfuzztest_target should have size 32");
+static_assert(sizeof(struct kfuzztest_target) == 32, "struct kfuzztest_target should have size 32");
 
-/* clang-format off */
 /**
  * FUZZ_TEST - defines a KFuzzTest target
  *
@@ -256,55 +217,41 @@ static_assert(sizeof(struct kfuzztest_target) == 32,
  *	ret = process_data(arg->data, arg->len);
  * }
  */
-#define FUZZ_TEST(test_name, test_arg_type)					\
-	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp,	\
-						      const char __user *buf,	\
-						      size_t len,		\
-						      loff_t *off);		\
-	static void kfuzztest_logic_##test_name(				\
-		test_arg_type *arg, struct reloc_region_array *regions);	\
-	const struct kfuzztest_target __fuzz_test__##test_name __attribute__((	\
-		__section__(".kfuzztest_target"), __used__)) = {		\
-		.name = #test_name,						\
-		.arg_type_name = #test_arg_type,				\
-		.write_input_cb = kfuzztest_write_cb_##test_name,		\
-	};									\
-	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp,	\
-						      const char __user *buf,	\
-						      size_t len, loff_t *off)	\
-	{									\
-		void *payload_start, *payload_end, *buffer;			\
-		struct reloc_region_array *regions;				\
-		struct reloc_table *rt;						\
-		test_arg_type *arg;						\
-		int ret;							\
-										\
-		buffer = kmalloc(len, GFP_KERNEL);				\
-		if (!buffer)							\
-			return -ENOMEM;						\
-		ret = simple_write_to_buffer(buffer, len, off, buf, len);	\
-		if (ret < 0)							\
-			goto out;						\
-		ret = __kfuzztest_parse_input(buffer, len, &regions, &rt,	\
-					      &payload_start, &payload_end);	\
-		if (ret)							\
-			goto out;						\
-		__kfuzztest_debug_header(regions, rt, payload_start,		\
-					 payload_end);				\
-		ret = __kfuzztest_relocate(regions, rt, payload_start,		\
-					   payload_end);			\
-		if (ret)							\
-			goto out;						\
-		/* Call the fuzz logic on the provided written input. */	\
-		arg = (test_arg_type *)payload_start;				\
-		kfuzztest_logic_##test_name(arg, regions);			\
-		ret = len;							\
-out:										\
-		kfree(buffer);							\
-		return ret;							\
-	}									\
-	static void kfuzztest_logic_##test_name(				\
-		test_arg_type *arg, struct reloc_region_array *regions)
+#define FUZZ_TEST(test_name, test_arg_type)                                                                  \
+	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len, \
+						      loff_t *off);                                          \
+	static void kfuzztest_logic_##test_name(test_arg_type *arg);                                         \
+	const struct kfuzztest_target __fuzz_test__##test_name                                               \
+		__attribute__((__section__(".kfuzztest_target"), __used__)) = {                              \
+			.name = #test_name,                                                                  \
+			.arg_type_name = #test_arg_type,                                                     \
+			.write_input_cb = kfuzztest_write_cb_##test_name,                                    \
+		};                                                                                           \
+	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len, \
+						      loff_t *off)                                           \
+	{                                                                                                    \
+		test_arg_type *arg;                                                                          \
+		void *buffer;                                                                                \
+		int ret;                                                                                     \
+                                                                                                             \
+		if (len < sizeof(u64))                                                                       \
+			return -EINVAL;                                                                      \
+		buffer = kmalloc(len, GFP_KERNEL);                                                           \
+		if (!buffer)                                                                                 \
+			return -ENOMEM;                                                                      \
+		ret = simple_write_to_buffer(buffer, len, off, buf, len);                                    \
+		if (ret < 0)                                                                                 \
+			goto out;                                                                            \
+		ret = kfuzztest_parse_and_relocate(buffer, len, (void **)&arg);                              \
+		if (ret < 0)                                                                                 \
+			goto out;                                                                            \
+		kfuzztest_logic_##test_name(arg);                                                            \
+		ret = len;                                                                                   \
+out:                                                                                                         \
+		kfree(buffer);                                                                               \
+		return ret;                                                                                  \
+	}                                                                                                    \
+	static void kfuzztest_logic_##test_name(test_arg_type *arg)
 
 enum kfuzztest_constraint_type {
 	EXPECT_EQ = 0,
@@ -354,77 +301,67 @@ struct kfuzztest_constraint {
  * Enforce a fixed struct size to ensure a consistent stride when iterating
  * over the array of these structs in the dedicated ELF section.
  */
-static_assert(sizeof(struct kfuzztest_constraint) == 64,
-	      "struct kfuzztest_constraint should have size 64");
+static_assert(sizeof(struct kfuzztest_constraint) == 64, "struct kfuzztest_constraint should have size 64");
 
-#define __KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)		\
-	static struct kfuzztest_constraint __constraint_##arg_type##_##f	\
-		__attribute__((__section__(".kfuzztest_constraint"),		\
-			       __used__)) = {					\
-			.input_type = "struct " #arg_type,			\
-			.field_name = #field,					\
-			.value1 = (uintptr_t)val1,				\
-			.value2 = (uintptr_t)val2,				\
-			.type = tpe,						\
+#define __KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)             \
+	static struct kfuzztest_constraint __constraint_##arg_type##_##f            \
+		__attribute__((__section__(".kfuzztest_constraint"), __used__)) = { \
+			.input_type = "struct " #arg_type,                          \
+			.field_name = #field,                                       \
+			.value1 = (uintptr_t)val1,                                  \
+			.value2 = (uintptr_t)val2,                                  \
+			.type = tpe,                                                \
 		}
 
-#define KFUZZTEST_EXPECT_EQ(arg_type, field, val)				\
-	do {									\
-		if (arg->field != val)						\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field,			\
-						val, 0x0, EXPECT_EQ);		\
+#define KFUZZTEST_EXPECT_EQ(arg_type, field, val)                                    \
+	do {                                                                         \
+		if (arg->field != val)                                               \
+			return;                                                      \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ); \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_NE(arg_type, field, val)				\
-	do {									\
-		if (arg->field == val)						\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val,		\
-					0x0, EXPECT_NE);			\
+#define KFUZZTEST_EXPECT_NE(arg_type, field, val)                                    \
+	do {                                                                         \
+		if (arg->field == val)                                               \
+			return;                                                      \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE); \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_LT(arg_type, field, val)				\
-	do {									\
-		if (arg->field >= val)						\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val,		\
-					0x0, EXPECT_LT);			\
+#define KFUZZTEST_EXPECT_LT(arg_type, field, val)                                    \
+	do {                                                                         \
+		if (arg->field >= val)                                               \
+			return;                                                      \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LT); \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_LE(arg_type, field, val)				\
-	do {									\
-		if (arg->field > val)						\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val,		\
-					0x0, EXPECT_LE);			\
+#define KFUZZTEST_EXPECT_LE(arg_type, field, val)                                    \
+	do {                                                                         \
+		if (arg->field > val)                                                \
+			return;                                                      \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE); \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_GT(arg_type, field, val)				\
-	do {									\
-		if (arg->field <= val)						\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val,		\
-					0x0, EXPECT_GT)				\
+#define KFUZZTEST_EXPECT_GT(arg_type, field, val)                                   \
+	do {                                                                        \
+		if (arg->field <= val)                                              \
+			return;                                                     \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT) \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_GE(arg_type, field, val)				\
-	do {									\
-		if (arg->field < val)						\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val,		\
-					0x0, EXPECT_GE)`			\
+#define KFUZZTEST_EXPECT_GE(arg_type, field, val)                                   \
+	do {                                                                        \
+		if (arg->field < val)                                               \
+			return;                                                     \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GE)` \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_NOT_NULL(arg_type, field) \
-	KFUZZTEST_EXPECT_NE(arg_type, field, 0x0)
+#define KFUZZTEST_EXPECT_NOT_NULL(arg_type, field) KFUZZTEST_EXPECT_NE(arg_type, field, 0x0)
 
-#define KFUZZTEST_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)	\
-	do {									\
-		if (arg->field < lower_bound || arg->field > upper_bound)	\
-			return;							\
-		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, lower_bound,	\
-						upper_bound, EXPECT_IN_RANGE)	\
+#define KFUZZTEST_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)                              \
+	do {                                                                                              \
+		if (arg->field < lower_bound || arg->field > upper_bound)                                 \
+			return;                                                                           \
+		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, lower_bound, upper_bound, EXPECT_IN_RANGE) \
 	} while (0)
 
 /**
@@ -480,32 +417,28 @@ struct kfuzztest_annotation {
  * Enforce a fixed struct size to ensure a consistent stride when iterating
  * over the array of these structs in the dedicated ELF section.
  */
-static_assert(sizeof(struct kfuzztest_annotation) == 32,
-	      "struct kfuzztest_annotation should have size 32");
+static_assert(sizeof(struct kfuzztest_annotation) == 32, "struct kfuzztest_annotation should have size 32");
 
-#define __KFUZZTEST_ANNOTATE(arg_type, field, linked_field, attribute)		\
-	static struct kfuzztest_annotation __annotation_##arg_type##_##field	\
-		__attribute__((__section__(".kfuzztest_annotation"),		\
-			       __used__)) = {					\
-			.input_type = "struct " #arg_type,			\
-			.field_name = #field,					\
-			.linked_field_name = #linked_field,			\
-			.attrib = attribute,					\
+#define __KFUZZTEST_ANNOTATE(arg_type, field, linked_field, attribute)              \
+	static struct kfuzztest_annotation __annotation_##arg_type##_##field        \
+		__attribute__((__section__(".kfuzztest_annotation"), __used__)) = { \
+			.input_type = "struct " #arg_type,                          \
+			.field_name = #field,                                       \
+			.linked_field_name = #linked_field,                         \
+			.attrib = attribute,                                        \
 		}
 
 /**
  * Annotates a char* field as a string, which is the subset of char arrays that
  * are null-terminated.
  */
-#define KFUZZTEST_ANNOTATE_STRING(arg_type, field) \
-	__KFUZZTEST_ANNOTATE(arg_type, field, NULL, ATTRIBUTE_STRING)
+#define KFUZZTEST_ANNOTATE_STRING(arg_type, field) __KFUZZTEST_ANNOTATE(arg_type, field, NULL, ATTRIBUTE_STRING)
 
 /**
  * Annotates a pointer field as an array, which is a contiguous memory region
  * containing zero or more elements of the same type.
  */
-#define KFUZZTEST_ANNOTATE_ARRAY(arg_type, field) \
-	__KFUZZTEST_ANNOTATE(arg_type, field, NULL, ATTRIBUTE_ARRAY)
+#define KFUZZTEST_ANNOTATE_ARRAY(arg_type, field) __KFUZZTEST_ANNOTATE(arg_type, field, NULL, ATTRIBUTE_ARRAY)
 
 /**
  * Annotates arg_type.field as the length of arg_type.linked_field
@@ -514,10 +447,6 @@ static_assert(sizeof(struct kfuzztest_annotation) == 32,
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
 
 #define KFUZZTEST_REGIONID_NULL U32_MAX
-
-/** Get the size of a payload region from within a FUZZ_TEST body */
-#define KFUZZTEST_REGION_SIZE(n) \
-	((n) < (regions->num_regions) ? (regions->regions[n].size) : 0)
 
 /*
  * FIXME: These are both defined in `mm/kasan/kasan.h`, but the build breaks
