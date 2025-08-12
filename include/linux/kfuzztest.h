@@ -298,6 +298,13 @@ struct kfuzztest_constraint {
 			.type = tpe,                                                                            \
 		}
 
+/**
+ * KFUZZTEST_EXPECT_EQ - constrain a field to be equal to a value
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable
+ * @val: a value of the same type as @arg_type.@field
+ */
 #define KFUZZTEST_EXPECT_EQ(arg_type, field, val)                                    \
 	do {                                                                         \
 		if (arg->field != val)                                               \
@@ -305,6 +312,13 @@ struct kfuzztest_constraint {
 		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_EQ); \
 	} while (0)
 
+/**
+ * KFUZZTEST_EXPECT_NE - constrain a field to be not equal to a value
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @val: a value of the same type as @arg_type.@field.
+ */
 #define KFUZZTEST_EXPECT_NE(arg_type, field, val)                                    \
 	do {                                                                         \
 		if (arg->field == val)                                               \
@@ -312,6 +326,13 @@ struct kfuzztest_constraint {
 		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_NE); \
 	} while (0)
 
+/**
+ * KFUZZTEST_EXPECT_LT - constrain a field to be less than a value
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @val: a value of the same type as @arg_type.@field.
+ */
 #define KFUZZTEST_EXPECT_LT(arg_type, field, val)                                    \
 	do {                                                                         \
 		if (arg->field >= val)                                               \
@@ -319,6 +340,13 @@ struct kfuzztest_constraint {
 		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LT); \
 	} while (0)
 
+/**
+ * KFUZZTEST_EXPECT_LE - constrain a field to be less than or equal to a value
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @val: a value of the same type as @arg_type.@field.
+ */
 #define KFUZZTEST_EXPECT_LE(arg_type, field, val)                                    \
 	do {                                                                         \
 		if (arg->field > val)                                                \
@@ -326,6 +354,13 @@ struct kfuzztest_constraint {
 		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_LE); \
 	} while (0)
 
+/**
+ * KFUZZTEST_EXPECT_GT - constrain a field to be greater than a value
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @val: a value of the same type as @arg_type.@field.
+ */
 #define KFUZZTEST_EXPECT_GT(arg_type, field, val)                                   \
 	do {                                                                        \
 		if (arg->field <= val)                                              \
@@ -333,6 +368,13 @@ struct kfuzztest_constraint {
 		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GT) \
 	} while (0)
 
+/**
+ * KFUZZTEST_EXPECT_GE - constrain a field to be greater than or equal to a value
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @val: a value of the same type as @arg_type.@field.
+ */
 #define KFUZZTEST_EXPECT_GE(arg_type, field, val)                                   \
 	do {                                                                        \
 		if (arg->field < val)                                               \
@@ -340,8 +382,23 @@ struct kfuzztest_constraint {
 		__KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val, 0x0, EXPECT_GE)` \
 	} while (0)
 
-#define KFUZZTEST_EXPECT_NOT_NULL(arg_type, field) KFUZZTEST_EXPECT_NE(arg_type, field, 0x0)
+/**
+ * KFUZZTEST_EXPECT_GE - constrain a pointer field to be non-NULL
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @val: a value of the same type as @arg_type.@field.
+ */
+#define KFUZZTEST_EXPECT_NOT_NULL(arg_type, field) KFUZZTEST_EXPECT_NE(arg_type, field, NULL)
 
+/**
+ * KFUZZTEST_EXPECT_IN_RANGE - constrain a field to be within a range
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: some field that is comparable.
+ * @lower_bound: a lower bound of the same type as @arg_type.@field.
+ * @upper_bound: an upper bound of the same type as @arg_type.@field.
+ */
 #define KFUZZTEST_EXPECT_IN_RANGE(arg_type, field, lower_bound, upper_bound)                              \
 	do {                                                                                              \
 		if (arg->field < lower_bound || arg->field > upper_bound)                                 \
@@ -408,19 +465,36 @@ struct kfuzztest_annotation {
 		}
 
 /**
- * Annotates a char* field as a string, which is the subset of char arrays that
- * are null-terminated.
+ * KFUZZTEST_ANNOTATE_STRING - annotate a char* field as a C string
+ *
+ * We define a C string as a sequence of non-zero characters followed by exactly
+ * one null terminator.
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: the name of the field to annotate.
  */
 #define KFUZZTEST_ANNOTATE_STRING(arg_type, field) __KFUZZTEST_ANNOTATE(arg_type, field, NULL, ATTRIBUTE_STRING)
 
 /**
- * Annotates a pointer field as an array, which is a contiguous memory region
- * containing zero or more elements of the same type.
+ * KFUZZTEST_ANNOTATE_ARRAY - annotate a pointer as an array
+ *
+ * We define an array as a contiguous memory region containing zero or more
+ * elements of the same type.
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: the name of the field to annotate.
  */
 #define KFUZZTEST_ANNOTATE_ARRAY(arg_type, field) __KFUZZTEST_ANNOTATE(arg_type, field, NULL, ATTRIBUTE_ARRAY)
 
 /**
- * Annotates arg_type.field as the length of arg_type.linked_field
+ * KFUZZTEST_ANNOTATE_LEN - annotate a field as the length of another
+ *
+ * This expresses the relationship `arg_type.field == len(linked_field)`, where
+ * `linked_field` is an array.
+ *
+ * @arg_type: name of the input structure, without the leading "struct ".
+ * @field: the name of the field to annotate.
+ * @linked_field: the name of an array field with length @field.
  */
 #define KFUZZTEST_ANNOTATE_LEN(arg_type, field, linked_field) \
 	__KFUZZTEST_ANNOTATE(arg_type, field, linked_field, ATTRIBUTE_LEN)
