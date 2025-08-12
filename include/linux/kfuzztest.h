@@ -227,8 +227,6 @@ struct kfuzztest_target {
 		void *buffer;                                                                                \
 		int ret;                                                                                     \
                                                                                                              \
-		if (len < sizeof(u64))                                                                       \
-			return -EINVAL;                                                                      \
 		buffer = kmalloc(len, GFP_KERNEL);                                                           \
 		if (!buffer)                                                                                 \
 			return -ENOMEM;                                                                      \
