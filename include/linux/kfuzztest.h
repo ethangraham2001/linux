@@ -247,7 +247,7 @@ out:                                                                            
 	static void kfuzztest_logic_##test_name(test_arg_type *arg)
 
 enum kfuzztest_constraint_type {
-	EXPECT_EQ = 0,
+	EXPECT_EQ,
 	EXPECT_NE,
 	EXPECT_LT,
 	EXPECT_LE,
@@ -364,7 +364,7 @@ struct kfuzztest_constraint {
  * past the end of a non-null-terminated buffer.
  */
 enum kfuzztest_annotation_attribute : uint8_t {
-	ATTRIBUTE_LEN = 0,
+	ATTRIBUTE_LEN,
 	ATTRIBUTE_STRING,
 	ATTRIBUTE_ARRAY,
 };
