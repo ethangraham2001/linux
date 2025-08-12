@@ -150,12 +150,6 @@ struct kfuzztest_target {
 	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf, size_t len, loff_t *off);
 } __aligned(32);
 
-/*
- * Enforce a fixed struct size to ensure a consistent stride when iterating
- * over the array of these structs in the dedicated ELF section.
- */
-static_assert(sizeof(struct kfuzztest_target) == 32, "struct kfuzztest_target should have size 32");
-
 /**
  * FUZZ_TEST - defines a KFuzzTest target
  *
@@ -221,12 +215,11 @@ static_assert(sizeof(struct kfuzztest_target) == 32, "struct kfuzztest_target sh
 	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len, \
 						      loff_t *off);                                          \
 	static void kfuzztest_logic_##test_name(test_arg_type *arg);                                         \
-	const struct kfuzztest_target __fuzz_test__##test_name                                               \
-		__attribute__((__section__(".kfuzztest_target"), __used__)) = {                              \
-			.name = #test_name,                                                                  \
-			.arg_type_name = #test_arg_type,                                                     \
-			.write_input_cb = kfuzztest_write_cb_##test_name,                                    \
-		};                                                                                           \
+	const struct kfuzztest_target __fuzz_test__##test_name __section(".kfuzztest_target") __used = {     \
+		.name = #test_name,                                                                          \
+		.arg_type_name = #test_arg_type,                                                             \
+		.write_input_cb = kfuzztest_write_cb_##test_name,                                            \
+	};                                                                                                   \
 	static ssize_t kfuzztest_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len, \
 						      loff_t *off)                                           \
 	{                                                                                                    \
@@ -297,20 +290,14 @@ struct kfuzztest_constraint {
 	enum kfuzztest_constraint_type type;
 } __aligned(64);
 
-/*
- * Enforce a fixed struct size to ensure a consistent stride when iterating
- * over the array of these structs in the dedicated ELF section.
- */
-static_assert(sizeof(struct kfuzztest_constraint) == 64, "struct kfuzztest_constraint should have size 64");
-
-#define __KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)             \
-	static struct kfuzztest_constraint __constraint_##arg_type##_##f            \
-		__attribute__((__section__(".kfuzztest_constraint"), __used__)) = { \
-			.input_type = "struct " #arg_type,                          \
-			.field_name = #field,                                       \
-			.value1 = (uintptr_t)val1,                                  \
-			.value2 = (uintptr_t)val2,                                  \
-			.type = tpe,                                                \
+#define __KFUZZTEST_DEFINE_CONSTRAINT(arg_type, field, val1, val2, tpe)                                         \
+	static struct kfuzztest_constraint __constraint_##arg_type##_##field __section(".kfuzztest_constraint") \
+		__used = {                                                                                      \
+			.input_type = "struct " #arg_type,                                                      \
+			.field_name = #field,                                                                   \
+			.value1 = (uintptr_t)val1,                                                              \
+			.value2 = (uintptr_t)val2,                                                              \
+			.type = tpe,                                                                            \
 		}
 
 #define KFUZZTEST_EXPECT_EQ(arg_type, field, val)                                    \
@@ -413,19 +400,13 @@ struct kfuzztest_annotation {
 	enum kfuzztest_annotation_attribute attrib;
 } __aligned(32);
 
-/*
- * Enforce a fixed struct size to ensure a consistent stride when iterating
- * over the array of these structs in the dedicated ELF section.
- */
-static_assert(sizeof(struct kfuzztest_annotation) == 32, "struct kfuzztest_annotation should have size 32");
-
-#define __KFUZZTEST_ANNOTATE(arg_type, field, linked_field, attribute)              \
-	static struct kfuzztest_annotation __annotation_##arg_type##_##field        \
-		__attribute__((__section__(".kfuzztest_annotation"), __used__)) = { \
-			.input_type = "struct " #arg_type,                          \
-			.field_name = #field,                                       \
-			.linked_field_name = #linked_field,                         \
-			.attrib = attribute,                                        \
+#define __KFUZZTEST_ANNOTATE(arg_type, field, linked_field, attribute)                                          \
+	static struct kfuzztest_annotation __annotation_##arg_type##_##field __section(".kfuzztest_annotation") \
+		__used = {                                                                                      \
+			.input_type = "struct " #arg_type,                                                      \
+			.field_name = #field,                                                                   \
+			.linked_field_name = #linked_field,                                                     \
+			.attrib = attribute,                                                                    \
 		}
 
 /**
