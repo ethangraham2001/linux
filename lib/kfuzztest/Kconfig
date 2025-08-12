@@ -2,7 +2,7 @@
 
 config KFUZZTEST
 	bool "KFuzzTest - enable support for internal fuzz targets"
-	depends on DEBUG_FS
+	depends on DEBUG_FS && DEBUG_KERNEL
 	help
 	  Enables support for the kernel fuzz testing framework (KFuzzTest), an
 	  interface for exposing internal kernel functions to a userspace fuzzing
