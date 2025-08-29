@@ -100,7 +100,8 @@ static struct token *number(struct lexer *l)
 static enum token_type check_keyword(struct lexer *l, const char *keyword, enum token_type type)
 {
 	size_t len = strlen(keyword);
-	if ((l->current - l->start == len) && strncmp(l->start, keyword, len) == 0)
+
+	if (((size_t)(l->current - l->start) == len) && strncmp(l->start, keyword, len) == 0)
 		return type;
 	return TOKEN_IDENTIFIER;
 }
@@ -109,7 +110,8 @@ static struct token *identifier(struct lexer *l)
 {
 	enum token_type type = TOKEN_IDENTIFIER;
 	struct token *tok;
-	int i;
+	size_t i;
+
 	while (is_digit(peek(l)) || is_alpha(peek(l)) || peek(l) == '_')
 		advance(l);
 

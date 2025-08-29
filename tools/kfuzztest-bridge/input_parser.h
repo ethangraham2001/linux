@@ -40,7 +40,7 @@ struct ast_array {
 };
 
 struct ast_primitive {
-	int byte_width;
+	size_t byte_width;
 };
 
 struct ast_node {

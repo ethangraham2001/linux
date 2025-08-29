@@ -35,13 +35,6 @@ enum token_type {
 	TOKEN_ERROR,
 };
 
-static const char *token_names[] = {
-	"TOKEN_LBRACE",	    "TOKEN_RBRACE",	 "TOKEN_LBRACKET",    "TOKEN_RBRACKET",
-	"TOKEN_COMMA",	    "TOKEN_SEMICOLON",	 "TOKEN_KEYWORD_PTR", "TOKEN_KEYWORD_ARR",
-	"TOKEN_KEYWORD_U8", "TOKEN_KEYWORD_U16", "TOKEN_KEYWORD_U32", "TOKEN_KEYWORD_U64",
-	"TOKEN_IDENTIFIER", "TOKEN_INTEGER",	 "TOKEN_EOF",	      "TOKEN_ERROR",
-};
-
 struct token {
 	enum token_type type;
 	union {

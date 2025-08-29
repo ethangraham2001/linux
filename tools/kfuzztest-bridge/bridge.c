@@ -83,11 +83,9 @@ static int invoke_one(const char *input_fmt, const char *fuzz_target, const char
 
 int main(int argc, char *argv[])
 {
-	int ret;
-
 	if (argc != 4) {
 		printf("Usage: %s <input-description> <fuzz-target-name> <input-file>\n", argv[0]);
-		printf("For more detailed information see <docs>\n");
+		printf("For more detailed information see /Documentation/dev-tools/kfuzztest.rst\n");
 		return 1;
 	}
 

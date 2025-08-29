@@ -3,6 +3,7 @@
 
 #include "input_parser.h"
 #include "rand_stream.h"
+#include "byte_buffer.h"
 
 int encode(struct ast_node *top_level, struct rand_stream *r, size_t *num_bytes, struct byte_buffer **ret);
 

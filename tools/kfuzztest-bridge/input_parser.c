@@ -145,8 +145,8 @@ static int parse_region(struct parser *p, struct ast_node **node_ret)
 	struct ast_region *region;
 	struct ast_node *node;
 	struct ast_node *ret;
+	size_t i;
 	int err;
-	int i;
 
 	identifier = consume(p, TOKEN_IDENTIFIER, "expected identifier");
 	if (!identifier)
@@ -156,9 +156,11 @@ static int parse_region(struct parser *p, struct ast_node **node_ret)
 	if (!ret)
 		return -ENOMEM;
 
-	tok = advance(p);
-	if (tok->type != TOKEN_LBRACE)
+	tok = consume(p, TOKEN_LBRACE, "expected '{'");
+	if (!tok) {
+		err = -EINVAL;
 		goto fail_early;
+	}
 
 	region = &ret->data.region;
 	region->name = strndup(identifier->data.identifier.start, identifier->data.identifier.length);
@@ -201,8 +203,8 @@ static int parse_program(struct parser *p, struct ast_node **node_ret)
 	struct ast_node *reg;
 	struct ast_node *ret;
 	void *new_ptr;
+	size_t i;
 	int err;
-	int i;
 
 	ret = malloc(sizeof(*ret));
 	if (!ret)
@@ -239,15 +241,16 @@ fail:
 
 size_t node_alignment(struct ast_node *node)
 {
-	int max_alignment = 1;
+	size_t max_alignment = 1;
+	size_t i;
 
 	switch (node->type) {
 	case NODE_PROGRAM:
-		for (int i = 0; i < node->data.program.num_members; i++)
+		for (i = 0; i < node->data.program.num_members; i++)
 			max_alignment = MAX(max_alignment, node_alignment(node->data.program.members[i]));
 		return max_alignment;
 	case NODE_REGION:
-		for (int i = 0; i < node->data.region.num_members; i++)
+		for (i = 0; i < node->data.region.num_members; i++)
 			max_alignment = MAX(max_alignment, node_alignment(node->data.region.members[i]));
 		return max_alignment;
 	case NODE_ARRAY:
@@ -266,14 +269,15 @@ size_t node_alignment(struct ast_node *node)
 size_t node_size(struct ast_node *node)
 {
 	size_t total = 0;
+	size_t i;
 
 	switch (node->type) {
 	case NODE_PROGRAM:
-		for (int i = 0; i < node->data.program.num_members; i++)
+		for (i = 0; i < node->data.program.num_members; i++)
 			total += node_size(node->data.program.members[i]);
 		return total;
 	case NODE_REGION:
-		for (int i = 0; i < node->data.region.num_members; i++)
+		for (i = 0; i < node->data.region.num_members; i++)
 			total += node_size(node->data.region.members[i]);
 		return total;
 	case NODE_ARRAY:

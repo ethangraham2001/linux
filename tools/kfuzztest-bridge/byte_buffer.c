@@ -65,8 +65,9 @@ int append_byte(struct byte_buffer *buf, char c)
 
 int encode_le(struct byte_buffer *buf, uint64_t value, size_t byte_width)
 {
+	size_t i;
 	int ret;
-	int i;
+
 	for (i = 0; i < byte_width; ++i) {
 		if ((ret = append_byte(buf, (uint8_t)((value >> (i * 8)) & 0xFF)))) {
 			return ret;
