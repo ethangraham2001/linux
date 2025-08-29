@@ -1,24 +1,48 @@
 # SPDX-License-Identifier: GPL-2.0
-export srctree := $(abspath ../..)
-export CC      := gcc
-export LD      := ld
-export AR      := ar
+# Makefile for KFuzzTest-Bridge
+include ../scripts/Makefile.include
 
-kfuzztest-bridge:
+bindir ?= /usr/bin
 
+ifeq ($(srctree),)
+srctree := $(patsubst %/,%,$(dir $(CURDIR)))
+srctree := $(patsubst %/,%,$(dir $(srctree)))
+endif
+
+MAKEFLAGS += -r
+
+override CFLAGS += -O2 -g
+override CFLAGS += -Wall -Wextra
+override CFLAGS += -D_GNU_SOURCE
+override CFLAGS += -I$(OUTPUT)include -I$(srctree)/tools/include
+
+ALL_TARGETS := kfuzztest-bridge
+ALL_PROGRAMS := $(patsubst %,$(OUTPUT)%,$(ALL_TARGETS))
+
+KFUZZTEST_BRIDGE_IN := $(OUTPUT)kfuzztest-bridge-in.o
+KFUZZTEST_BRIDGE    := $(OUTPUT)kfuzztest-bridge
+
+all: $(ALL_PROGRAMS)
+
+export srctree OUTPUT CC LD CFLAGS
 include $(srctree)/tools/build/Makefile.include
 
-kfuzztest-bridge: kfuzztest_bridge.o byte_buffer.o kfuzztest_encoder.o kfuzztest_input_lexer.o kfuzztest_input_parser.o rand_stream.o
-	$(CC) -o $@ $^
+$(KFUZZTEST_BRIDGE_IN): FORCE
+	$(Q)$(MAKE) $(build)=kfuzztest-bridge
 
-kfuzztest-bridge.%: fixdep FORCE
-	make -f $(srctree)/tools/build/Makefile.build dir=. $@
-
-kfuzztest-bridge-in.o: fixdep FORCE
-	make $(build)=ex
+$(KFUZZTEST_BRIDGE): $(KFUZZTEST_BRIDGE_IN)
+	$(QUIET_LINK)$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 clean:
-	find . -name '*.o' -delete -o -name '\.*.cmd' -delete -o -name '\.*.d' -delete
-	rm -f ex ex.i ex.s
+	rm -f $(ALL_PROGRAMS)
+	find $(or $(OUTPUT),.) -name '*.o' -delete -o -name '\.*.d' -delete -o -name '\.*.o.cmd' -delete
 
-.PHONY: FORCE
+install: $(ALL_PROGRAMS)
+	install -d -m 755 $(DESTDIR)$(bindir);		\
+	for program in $(ALL_PROGRAMS); do		\
+		install $$program $(DESTDIR)$(bindir);	\
+	done
+
+FORCE:
+
+.PHONY: all install clean FORCE prepare

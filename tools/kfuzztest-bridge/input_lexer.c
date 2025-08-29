@@ -2,7 +2,7 @@
 /*
  * Parser for KFuzzTest textual input format
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
 #include <asm-generic/errno-base.h>
 #include <stdbool.h>
@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "kfuzztest_input_lexer.h"
+#include "input_lexer.h"
 
 struct keyword_map {
 	const char *keyword;
@@ -113,7 +113,7 @@ static struct token *identifier(struct lexer *l)
 	while (is_digit(peek(l)) || is_alpha(peek(l)) || peek(l) == '_')
 		advance(l);
 
-	for (i = 0; i < COUNT_OF(keywords); i++) {
+	for (i = 0; i < ARRAY_SIZE(keywords); i++) {
 		if (check_keyword(l, keywords[i].keyword, keywords[i].type) != TOKEN_IDENTIFIER) {
 			type = keywords[i].type;
 			break;

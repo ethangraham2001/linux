@@ -2,14 +2,14 @@
 /*
  * Parser for KFuzzTest textual input format
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
 #include <asm-generic/errno-base.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "kfuzztest_input_lexer.h"
-#include "kfuzztest_input_parser.h"
+#include "input_lexer.h"
+#include "input_parser.h"
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 

@@ -2,7 +2,7 @@
 /*
  * Encoder for KFuzzTest binary input format
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
 #include <asm-generic/errno-base.h>
 #include <stdint.h>
@@ -11,7 +11,7 @@
 #include <string.h>
 
 #include "byte_buffer.h"
-#include "kfuzztest_input_parser.h"
+#include "input_parser.h"
 #include "rand_stream.h"
 
 #define KFUZZTEST_MAGIC 0xBFACE

@@ -2,10 +2,10 @@
 /*
  * Parser for KFuzzTest textual input format
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
-#ifndef KFUZZTEST_INPUT_PARSER_H
-#define KFUZZTEST_INPUT_PARSER_H 1
+#ifndef KFUZZTEST_BRIDGE_INPUT_PARSER_H
+#define KFUZZTEST_BRIDGE_INPUT_PARSER_H
 
 #include <stdlib.h>
 
@@ -65,4 +65,4 @@ int parse(struct token **tokens, size_t token_count, struct ast_node **node_ret)
 size_t node_size(struct ast_node *node);
 size_t node_alignment(struct ast_node *node);
 
-#endif /* KFUZZTEST_INPUT_PARSER_H */
+#endif /* KFUZZTEST_BRIDGE_INPUT_PARSER_H */

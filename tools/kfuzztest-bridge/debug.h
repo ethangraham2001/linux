@@ -2,14 +2,14 @@
 /*
  * Debug helpers for the parser and the encoder
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
-#ifndef DEBUG_H
-#define DEBUG_H 1
+#ifndef KFUZZTEST_BRIDGE_DEBUG_H
+#define KFUZZTEST_BRIDGE_DEBUG_H
 
 #include <stdio.h>
-#include "kfuzztest_input_lexer.h"
-#include "kfuzztest_input_parser.h"
+#include "input_lexer.h"
+#include "input_parser.h"
 
 // Forward declaration for the recursive helper function
 static void visualize_node(struct ast_node *node, int indent);
@@ -95,4 +95,4 @@ static void print_bytes(const char *bytes, size_t num_bytes)
 	}
 	printf("\n");
 }
-#endif /* DEBUG_H */
+#endif /* KFUZZTEST_BRIDGE_DEBUG_H */

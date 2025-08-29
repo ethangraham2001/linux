@@ -3,10 +3,10 @@
  * Implements a cached file-reader for iterating over a byte stream of
  * pseudo-random data
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
-#ifndef RAND_STREAM_H
-#define RAND_STREAM_H 1
+#ifndef KFUZZTEST_BRIDGE_RAND_STREAM_H
+#define KFUZZTEST_BRIDGE_RAND_STREAM_H
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -43,4 +43,4 @@ struct rand_stream *new_rand_stream(const char *path_to_file, size_t cache_size)
  */
 int next_byte(struct rand_stream *rs, char *ret);
 
-#endif /* RAND_STREAM_H */
+#endif /* KFUZZTEST_BRIDGE_RAND_STREAM_H */

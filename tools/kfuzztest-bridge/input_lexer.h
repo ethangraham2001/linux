@@ -2,16 +2,16 @@
 /*
  * Lexer for KFuzzTest textual input format
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
-#ifndef KFUZZTEST_INPUT_LEXER_H
-#define KFUZZTEST_INPUT_LEXER_H 1
+#ifndef KFUZZTEST_BRIDGE_INPUT_LEXER_H
+#define KFUZZTEST_BRIDGE_INPUT_LEXER_H
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
-#define COUNT_OF(_Array) (sizeof(_Array) / sizeof(_Array[0]))
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
 enum token_type {
 	TOKEN_LBRACE,
@@ -59,4 +59,4 @@ int tokenize(const char *input, struct token ***tokens, size_t *num_tokens);
 bool is_primitive(struct token *tok);
 int primitive_byte_width(enum token_type type);
 
-#endif /* KFUZZTEST_INPUT_LEXER_H */
+#endif /* KFUZZTEST_BRIDGE_INPUT_LEXER_H */

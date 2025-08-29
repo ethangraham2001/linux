@@ -2,7 +2,7 @@
 /*
  * A simple byte buffer implementation for encoding binary data
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
 #include <asm-generic/errno-base.h>
 #include <stdlib.h>

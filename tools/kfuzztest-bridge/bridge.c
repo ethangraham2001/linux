@@ -2,8 +2,9 @@
 /*
  * KFuzzTest tool for sending inputs into a KFuzzTest harness
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
+
 #include <asm-generic/errno-base.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -11,30 +12,10 @@
 #include <unistd.h>
 
 #include "byte_buffer.h"
-#include "kfuzztest_encoder.h"
-#include "kfuzztest_input_lexer.h"
-#include "kfuzztest_input_parser.h"
+#include "encoder.h"
+#include "input_lexer.h"
+#include "input_parser.h"
 #include "rand_stream.h"
-
-const char *usage_str = "usage: "
-			"./kfuzztest-bridge <program-description> <fuzz-target-name> <input-file>\n"
-			"for more detailed information see <docs>";
-
-static int invoke_one(const char *input_fmt, const char *fuzz_target, const char *input_filepath);
-
-int main(int argc, char *argv[])
-{
-	int ret;
-
-	if (argc != 4) {
-		printf("%s\n", usage_str);
-		return 1;
-	}
-
-	ret = invoke_one(argv[1], argv[2], argv[3]);
-	if (ret)
-		return 1;
-}
 
 static int invoke_kfuzztest_target(const char *target_name, const char *data, size_t data_size)
 {
@@ -98,4 +79,17 @@ static int invoke_one(const char *input_fmt, const char *fuzz_target, const char
 	}
 	destroy_byte_buffer(bb);
 	return err;
+}
+
+int main(int argc, char *argv[])
+{
+	int ret;
+
+	if (argc != 4) {
+		printf("Usage: %s <input-description> <fuzz-target-name> <input-file>\n", argv[0]);
+		printf("For more detailed information see <docs>\n");
+		return 1;
+	}
+
+	return invoke_one(argv[1], argv[2], argv[3]);
 }

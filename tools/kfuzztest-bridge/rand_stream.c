@@ -3,7 +3,7 @@
  * Implements a cached file-reader for iterating over a byte stream of
  * pseudo-random data
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
 #include "rand_stream.h"
 

@@ -2,10 +2,10 @@
 /*
  * A simple byte buffer implementation for encoding binary data
  *
- * Copyright 2025 Google LLC
+ * Copyright (C) 2025, Google LLC.
  */
-#ifndef BYTE_BUFFER_H
-#define BYTE_BUFFER_H
+#ifndef KFUZZTEST_BRIDGE_BYTE_BUFFER_H
+#define KFUZZTEST_BRIDGE_BYTE_BUFFER_H
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -28,4 +28,4 @@ int encode_le(struct byte_buffer *buf, uint64_t value, size_t byte_width);
 
 int pad(struct byte_buffer *buf, size_t num_padding);
 
-#endif /* BYTE_BUFFER_H */
+#endif /* KFUZZTEST_BRIDGE_BYTE_BUFFER_H */
