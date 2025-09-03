@@ -36,6 +36,7 @@
 #include <linux/list.h>
 #include <linux/list_sort.h>
 #include <linux/of.h>
+#include <linux/kfuzztest.h>
 
 #include <video/of_display_timing.h>
 #include <video/of_videomode.h>
@@ -2502,6 +2503,22 @@ bool drm_mode_parse_command_line_for_connector(const char *mode_option,
 	return true;
 }
 EXPORT_SYMBOL(drm_mode_parse_command_line_for_connector);
+
+struct cmdline_arg {
+	const char *data;
+};
+
+static const struct drm_connector no_conn = {};
+
+FUZZ_TEST(test_drm_parse_cmdline_for_conn, struct cmdline_arg)
+{
+	struct drm_cmdline_mode mode = {};
+
+	KFUZZTEST_EXPECT_NOT_NULL(cmdline_arg, data);
+	KFUZZTEST_ANNOTATE_STRING(cmdline_arg, data);
+
+	drm_mode_parse_command_line_for_connector(arg->data, &no_conn, &mode);
+}
 
 static struct drm_display_mode *drm_named_mode(struct drm_device *dev,
 					       struct drm_cmdline_mode *cmd)
