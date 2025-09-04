@@ -217,3 +217,7 @@ const struct z_erofs_decompressor z_erofs_zstd_decomp = {
 	.exit = z_erofs_zstd_exit,
 	.name = "zstd",
 };
+
+#ifdef CONFIG_KFUZZTEST
+#include "decompressor_zstd_kfuzz.c"
+#endif
