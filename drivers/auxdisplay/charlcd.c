@@ -176,7 +176,7 @@ static bool parse_xy(const char *s, unsigned long *x, unsigned long *y)
 			new_y = simple_strtoul(s + 1, &p, 10);
 			if (p == s + 1)
 				return false;
-			s = p;
+			s = p + 1; /* OOB! */
 		} else {
 			return false;
 		}
