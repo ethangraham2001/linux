@@ -112,6 +112,13 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 #else
 #define KEXEC_RELOCATE_KERNEL
 #endif
+
+#define KFTF_TABLE							\
+	. = ALIGN(0X100);						\
+	__kftf_start = .;						\
+	KEEP(*(.kftf));	/* keep everything referencing section */	\
+	__kftf_end = .;
+
 PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */
 	data PT_LOAD FLAGS(6);          /* RW_ */
@@ -193,6 +200,8 @@ SECTIONS
 		DATA_DATA
 		CONSTRUCTORS
 		KEXEC_RELOCATE_KERNEL
+
+		KFTF_TABLE
 
 		/* rarely changed data like cpu maps */
 		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)
