@@ -22,6 +22,7 @@ help:
 	@echo '  hv                     - tools used when in Hyper-V clients'
 	@echo '  iio                    - IIO tools'
 	@echo '  intel-speed-select     - Intel Speed Select tool'
+	@echo '  kfuzztest-bridge       - KFuzzTest userspace utility'
 	@echo '  kvm_stat               - top-like utility for displaying kvm statistics'
 	@echo '  leds                   - LEDs  tools'
 	@echo '  nolibc                 - nolibc headers testing and installation'
@@ -99,6 +100,9 @@ sched_ext: FORCE
 selftests: FORCE
 	$(call descend,testing/$@)
 
+kfuzztest-bridge: FORCE
+	$(call descend,testing/kfuzztest-bridge)
+
 thermal: FORCE
 	$(call descend,lib/$@)
 
@@ -127,7 +131,8 @@ all: acpi counter cpupower dma gpio hv firewire \
 		perf selftests bootconfig spi turbostat usb \
 		virtio mm bpf x86_energy_perf_policy \
 		tmon freefall iio objtool kvm_stat wmi \
-		debugging tracing thermal thermometer thermal-engine ynl
+		debugging tracing thermal thermometer thermal-engine ynl \
+		kfuzztest-bridge
 
 acpi_install:
 	$(call descend,power/$(@:_install=),install)
@@ -140,6 +145,9 @@ counter_install dma_install firewire_install gpio_install hv_install iio_install
 
 selftests_install:
 	$(call descend,testing/$(@:_install=),install)
+
+kfuzztest-bridge_install:
+	$(call descend,testing/kfuzztest-bridge,install)
 
 thermal_install:
 	$(call descend,lib/$(@:_install=),install)
@@ -171,7 +179,8 @@ install: acpi_install counter_install cpupower_install dma_install gpio_install 
 		virtio_install mm_install bpf_install x86_energy_perf_policy_install \
 		tmon_install freefall_install objtool_install kvm_stat_install \
 		wmi_install debugging_install intel-speed-select_install \
-		tracing_install thermometer_install thermal-engine_install ynl_install
+		tracing_install thermometer_install thermal-engine_install ynl_install \
+		kfuzztest-bridge_install
 
 acpi_clean:
 	$(call descend,power/acpi,clean)
@@ -200,6 +209,9 @@ sched_ext_clean:
 
 selftests_clean:
 	$(call descend,testing/$(@:_clean=),clean)
+
+kfuzztest-bridge_clean:
+	$(call descend,testing/kfuzztest-bridge,clean)
 
 thermal_clean:
 	$(call descend,lib/thermal,clean)
@@ -231,6 +243,6 @@ clean: acpi_clean counter_clean cpupower_clean dma_clean hv_clean firewire_clean
 		freefall_clean build_clean libbpf_clean libsubcmd_clean \
 		gpio_clean objtool_clean leds_clean wmi_clean firmware_clean debugging_clean \
 		intel-speed-select_clean tracing_clean thermal_clean thermometer_clean thermal-engine_clean \
-		sched_ext_clean ynl_clean
+		sched_ext_clean ynl_clean kfuzztest-bridge_clean
 
 .PHONY: FORCE
