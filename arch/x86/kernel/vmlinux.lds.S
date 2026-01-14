@@ -112,6 +112,21 @@ ASSERT(__relocate_kernel_end - __relocate_kernel_start <= KEXEC_CONTROL_CODE_MAX
 #else
 #define KEXEC_RELOCATE_KERNEL
 #endif
+
+#define KFTF_TABLE							\
+	. = ALIGN(PAGE_SIZE);						\
+	__kftf_test_case_start = .;					\
+	KEEP(*(.kftf_test));						\
+	__kftf_test_case_end = .;					\
+	. = ALIGN(PAGE_SIZE);						\
+	__kftf_constraint_start = .;					\
+	KEEP(*(.kftf_constraint));					\
+	__kftf_constraint_end = .;					\
+	. = ALIGN(PAGE_SIZE);						\
+	__kftf_annotation_start = .;					\
+	KEEP(*(.kftf_annotation));					\
+	__kftf_annotation_end = .;					\
+
 PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */
 	data PT_LOAD FLAGS(6);          /* RW_ */
@@ -193,6 +208,8 @@ SECTIONS
 		DATA_DATA
 		CONSTRUCTORS
 		KEXEC_RELOCATE_KERNEL
+
+		KFTF_TABLE
 
 		/* rarely changed data like cpu maps */
 		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)
