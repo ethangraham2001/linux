@@ -4,8 +4,13 @@
  *    Author: Alan Maguire <alan.maguire@oracle.com>
  */
 
+#include "test_internal.h"
 #include <linux/debugfs.h>
 #include <linux/module.h>
+#include <linux/ioctl.h>
+
+#define KFUZZ_IOC_MAGIC 'K'
+#define KFUZZ_IOC_RUN _IO(KFUZZ_IOC_MAGIC, 1)
 
 #include <kunit/test.h>
 #include <kunit/test-bug.h>
@@ -13,9 +18,10 @@
 #include "string-stream.h"
 #include "debugfs.h"
 
-#define KUNIT_DEBUGFS_ROOT             "kunit"
-#define KUNIT_DEBUGFS_RESULTS          "results"
-#define KUNIT_DEBUGFS_RUN              "run"
+#define KUNIT_DEBUGFS_ROOT "kunit"
+#define KUNIT_DEBUGFS_RESULTS "results"
+#define KUNIT_DEBUGFS_RUN "run"
+#define KUNIT_DEBUGFS_FUZZ "fuzz"
 
 /*
  * Create a debugfs representation of test suites:
@@ -114,8 +120,29 @@ static int debugfs_print_run(struct seq_file *seq, void *v)
 	struct kunit_suite *suite = (struct kunit_suite *)seq->private;
 
 	seq_puts(seq, "Write to this file to trigger the test suite to run.\n");
-	seq_printf(seq, "usage: echo \"any string\" > /sys/kernel/debugfs/kunit/%s/run\n",
-			suite->name);
+	seq_printf(
+		seq,
+		"usage: echo \"any string\" > /sys/kernel/debugfs/kunit/%s/run\n",
+		suite->name);
+	return 0;
+}
+
+static int debugfs_print_fuzz(struct seq_file *seq, void *v)
+{
+	struct kunit_case *test_case;
+	struct kunit_suite *suite;
+
+	suite = (struct kunit_suite *)seq->private;
+
+	size_t i = 0;
+	seq_puts(seq, "available fuzz harnesses:\n");
+	kunit_suite_for_each_test_case(suite, test_case) {
+		if (test_case->attr.type != KUNIT_FUZZ)
+			continue;
+		seq_printf(seq, "  %zu: %s\n", i, test_case->name);
+		i++;
+	}
+
 	return 0;
 }
 
@@ -139,15 +166,89 @@ static int debugfs_run_open(struct inode *inode, struct file *file)
  *
  * Note: what is written to this file will not be saved.
  */
-static ssize_t debugfs_run(struct file *file,
-		const char __user *buf, size_t count, loff_t *ppos)
+static ssize_t debugfs_run(struct file *file, const char __user *buf,
+			   size_t count, loff_t *ppos)
 {
 	struct inode *f_inode = file->f_inode;
-	struct kunit_suite *suite = (struct kunit_suite *) f_inode->i_private;
+	struct kunit_suite *suite = (struct kunit_suite *)f_inode->i_private;
 
 	__kunit_test_suites_init(&suite, 1, true);
 
 	return count;
+}
+
+static ssize_t debugfs_fuzz(struct file *file, const char __user *buf,
+			    size_t count, loff_t *ppos)
+{
+	void *input_buff;
+
+	struct inode *f_inode = file->f_inode;
+	struct kunit_suite *suite = (struct kunit_suite *)f_inode->i_private;
+
+	input_buff = kzalloc(count, GFP_KERNEL);
+	if (!input_buff)
+		return -ENOMEM;
+
+	if (copy_from_user(input_buff, buf, count)) {
+		kfree(input_buff);
+		return -EFAULT;
+	}
+
+	/* Free the previously allocated input buffer if it exists. */
+	if (suite->fuzz_input)
+		kfree(suite->fuzz_input);
+	suite->fuzz_input = input_buff;
+	suite->fuzz_input_len = count;
+	return count;
+}
+
+static struct kunit_case *find_nth_fuzz_harness(struct kunit_suite *suite,
+						unsigned int n)
+{
+	struct kunit_case *test_case;
+	unsigned int i = 0;
+
+	kunit_suite_for_each_test_case(suite, test_case) {
+		if (test_case->attr.type != KUNIT_FUZZ)
+			continue;
+		if (i == n)
+			return test_case;
+		i++;
+	}
+	return NULL;
+}
+
+static long kfuzz_unlocked_ioctl_invoke(struct file *file, unsigned int cmd,
+					unsigned long arg)
+{
+	/* XXX: not sure this is the correct way to do this? */
+	struct kunit test = { .param_value = NULL, .param_index = 0 };
+
+	struct kunit_case *harness;
+	size_t harness_id;
+
+	struct inode *f_inode = file->f_inode;
+	struct kunit_suite *suite = (struct kunit_suite *)f_inode->i_private;
+
+	if (cmd != KFUZZ_IOC_RUN)
+		return -ENOTTY;
+
+	harness_id = arg;
+
+	harness = find_nth_fuzz_harness(suite, harness_id);
+	if (!harness)
+		return -EINVAL;
+
+	kunit_init_test(&test, harness->name, harness->log);
+	kunit_run_case_catch_errors(suite, harness, &test);
+
+	return 0;
+}
+
+static int debugfs_fuzz_open(struct inode *inode, struct file *file)
+{
+	struct kunit_suite *suite = (struct kunit_suite *)inode->i_private;
+	return single_open(file, debugfs_print_fuzz, suite);
 }
 
 static const struct file_operations debugfs_results_fops = {
@@ -165,10 +266,20 @@ static const struct file_operations debugfs_run_fops = {
 	.release = debugfs_release,
 };
 
+static const struct file_operations debugfs_fuzz_fops = {
+	.open = debugfs_fuzz_open,
+	.read = seq_read,
+	.write = debugfs_fuzz,
+	.llseek = seq_lseek,
+	.release = debugfs_release,
+	.unlocked_ioctl = kfuzz_unlocked_ioctl_invoke,
+};
+
 void kunit_debugfs_create_suite(struct kunit_suite *suite)
 {
 	struct kunit_case *test_case;
 	struct string_stream *stream;
+	bool has_fuzz_harness = false;
 
 	/* If suite log already allocated, do not create new debugfs files. */
 	if (suite->log)
@@ -194,19 +305,26 @@ void kunit_debugfs_create_suite(struct kunit_suite *suite)
 
 		string_stream_set_append_newlines(stream, true);
 		test_case->log = stream;
+		if (test_case->attr.type == KUNIT_FUZZ)
+			has_fuzz_harness = true;
 	}
 
 	suite->debugfs = debugfs_create_dir(suite->name, debugfs_rootdir);
 
 	debugfs_create_file(KUNIT_DEBUGFS_RESULTS, S_IFREG | 0444,
-			    suite->debugfs,
-			    suite, &debugfs_results_fops);
+			    suite->debugfs, suite, &debugfs_results_fops);
 
-	/* Do not create file to re-run test if test runs on init */
+	/*
+	 * Do not create file to re-run test if test runs on init, or if the
+	 * suite represents a set of fuzzing harnesses. 
+	 */
 	if (!suite->is_init) {
 		debugfs_create_file(KUNIT_DEBUGFS_RUN, S_IFREG | 0644,
-				    suite->debugfs,
-				    suite, &debugfs_run_fops);
+				    suite->debugfs, suite, &debugfs_run_fops);
+	}
+	if (has_fuzz_harness) {
+		debugfs_create_file(KUNIT_DEBUGFS_FUZZ, S_IFREG | 0644,
+				    suite->debugfs, suite, &debugfs_fuzz_fops);
 	}
 	return;
 

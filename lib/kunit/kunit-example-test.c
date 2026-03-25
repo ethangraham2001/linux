@@ -489,6 +489,26 @@ static void example_params_test_with_init_dynamic_arr(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, param_val - param_val, 0);
 }
 
+static void example_fuzz_harness_always_fails(struct kunit *test, char *data,
+					      size_t datalen)
+{
+	kunit_info(test, "i am a fuzz harness and got %zu bytes of data!",
+		   datalen);
+	KUNIT_ASSERT_EQ(test, true, false);
+}
+
+static void example_fuzz_harness_oob(struct kunit *test, char *data,
+				     size_t datalen)
+{
+	size_t i;
+	volatile char c;
+
+	for (i = 0; i < datalen; i++)
+		READ_ONCE(data[i]);
+
+	c = *(data - 1);
+}
+
 /*
  * Here we make a list of all the test cases we want to add to the test suite
  * below.
@@ -514,6 +534,8 @@ static struct kunit_case example_test_cases[] = {
 				   kunit_array_gen_params, example_param_init_dynamic_arr,
 				   example_param_exit_dynamic_arr),
 	KUNIT_CASE_SLOW(example_slow_test),
+	KUNIT_CASE_FUZZ(example_fuzz_harness_always_fails),
+	KUNIT_CASE_FUZZ(example_fuzz_harness_oob),
 	{}
 };
 

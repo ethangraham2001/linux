@@ -24,6 +24,7 @@
 #include "hooks-impl.h"
 #include "string-stream.h"
 #include "try-catch-impl.h"
+#include "test_internal.h"
 
 static DEFINE_MUTEX(kunit_run_lock);
 
@@ -445,7 +446,11 @@ static void kunit_run_case_internal(struct kunit *test,
 
 	ktime_get_ts64(&start);
 
-	test_case->run_case(test);
+	if (test_case->attr.type == KUNIT_FUZZ)
+		test_case->fuzz_case(test, suite->fuzz_input,
+				     suite->fuzz_input_len);
+	else
+		test_case->run_case(test);
 
 	ktime_get_ts64(&end);
 
@@ -565,9 +570,9 @@ static void kunit_catch_run_case(void *data)
  * Performs all logic to run a test case. It also catches most errors that
  * occur in a test case and reports them as failures.
  */
-static void kunit_run_case_catch_errors(struct kunit_suite *suite,
-					struct kunit_case *test_case,
-					struct kunit *test)
+void kunit_run_case_catch_errors(struct kunit_suite *suite,
+				 struct kunit_case *test_case,
+				 struct kunit *test)
 {
 	struct kunit_try_catch_context context;
 	struct kunit_try_catch *try_catch;
@@ -762,6 +767,10 @@ kunit_run_one_test(struct kunit_suite *suite, struct kunit_case *test_case,
 	if (test_case->status == KUNIT_SKIPPED) {
 		/* Test marked as skip */
 		test.status = KUNIT_SKIPPED;
+		kunit_update_stats(&param_stats, test.status);
+	} else if (test_case->attr.type == KUNIT_FUZZ) {
+		/* Skip fuzzing harnesses. */
+		test_case->status = KUNIT_SKIPPED;
 		kunit_update_stats(&param_stats, test.status);
 	} else if (!test_case->generate_params) {
 		/* Non-parameterised test. */

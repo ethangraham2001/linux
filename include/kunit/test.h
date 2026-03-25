@@ -80,9 +80,15 @@ enum kunit_speed {
 	KUNIT_SPEED_MAX = KUNIT_SPEED_NORMAL,
 };
 
+enum kunit_case_type {
+	KUNIT_NORMAL,
+	KUNIT_FUZZ,
+};
+
 /* Holds attributes for each test case and suite */
 struct kunit_attributes {
 	enum kunit_speed speed;
+	enum kunit_case_type type;
 };
 
 /**
@@ -127,6 +133,7 @@ struct kunit_attributes {
  */
 struct kunit_case {
 	void (*run_case)(struct kunit *test);
+	void (*fuzz_case)(struct kunit *test, char *input, size_t input_len);
 	const char *name;
 	const void* (*generate_params)(struct kunit *test,
 				       const void *prev, char *desc);
@@ -161,9 +168,16 @@ static inline char *kunit_status_to_ok_not_ok(enum kunit_status status)
  * &struct kunit_case object from it. See the documentation for
  * &struct kunit_case for an example on how to use it.
  */
-#define KUNIT_CASE(test_name)			\
-		{ .run_case = test_name, .name = #test_name,	\
-		  .module_name = KBUILD_MODNAME}
+#define KUNIT_CASE(test_name)    \
+	{ .run_case = test_name, \
+	  .name = #test_name,    \
+	  .module_name = KBUILD_MODNAME }
+
+#define KUNIT_CASE_FUZZ(test_name) \
+	{ .fuzz_case = test_name,  \
+	  .name = #test_name,      \
+	  .attr.type = KUNIT_FUZZ, \
+	  .module_name = KBUILD_MODNAME }
 
 /**
  * KUNIT_CASE_ATTR - A helper for creating a &struct kunit_case
@@ -285,6 +299,8 @@ struct kunit_suite {
 	struct string_stream *log;
 	int suite_init_err;
 	bool is_init;
+	char *fuzz_input;
+	size_t fuzz_input_len;
 };
 
 /* Stores an array of suites, end points one past the end */
@@ -464,8 +480,8 @@ static inline int kunit_run_all_tests(void)
 #define kunit_test_init_section_suite(suite)	\
 	kunit_test_init_section_suites(&suite)
 
-#define kunit_suite_for_each_test_case(suite, test_case)		\
-	for (test_case = suite->test_cases; test_case->run_case; test_case++)
+#define kunit_suite_for_each_test_case(suite, test_case) \
+	for (test_case = suite->test_cases; test_case->name; test_case++)
 
 enum kunit_status kunit_suite_has_succeeded(struct kunit_suite *suite);
 
