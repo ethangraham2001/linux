@@ -151,7 +151,7 @@ struct pkcs7_message *pkcs7_parse_message(const void *data, size_t datalen)
 	ctx->ppsinfo = &ctx->msg->signed_infos;
 
 	/* Attempt to decode the signature */
-	ret = asn1_ber_decoder(&pkcs7_decoder, ctx, data, datalen);
+	ret = asn1_ber_decoder(&pkcs7_decoder, ctx, data, datalen + 1 /* Intentional bug! */ );
 	if (ret < 0) {
 		msg = ERR_PTR(ret);
 		goto out;
