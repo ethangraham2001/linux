@@ -10,6 +10,17 @@
 #include <linux/bitops.h>
 #include <linux/limits.h>
 #include <linux/math.h>
+#include <linux/kftf.h>
+
+struct int_sqrt_arg {
+	unsigned long x;
+};
+
+FUZZ_TEST(int_sqrt, struct int_sqrt_arg)
+{
+	unsigned long res = int_sqrt(arg.x);
+	pr_info("fuzz_arg.x = %lu, res = %lu", arg.x, res);
+}
 
 /**
  * int_sqrt - computes the integer square root
@@ -21,6 +32,11 @@ unsigned long int_sqrt(unsigned long x)
 {
 	unsigned long b, m, y = 0;
 
+	// deliberate bug
+	if (x == 0) {
+		char c = *(char *)x;
+		pr_info("should crash here! %c\n", c);
+	}
 	if (x <= 1)
 		return x;
 
@@ -51,7 +67,7 @@ u32 int_sqrt64(u64 x)
 	u64 b, m, y = 0;
 
 	if (x <= ULONG_MAX)
-		return int_sqrt((unsigned long) x);
+		return int_sqrt((unsigned long)x);
 
 	m = 1ULL << ((fls64(x) - 1) & ~1ULL);
 	while (m != 0) {
