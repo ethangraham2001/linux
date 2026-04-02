@@ -32,6 +32,7 @@ Documentation/process/debugging/index.rst
    kcsan
    lkmm/index
    kfence
+   kfuzztest
    kselftest
    kunit/index
    ktap

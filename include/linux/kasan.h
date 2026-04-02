@@ -127,6 +127,34 @@ static __always_inline bool kasan_unpoison_pages(struct page *page,
 	return false;
 }
 
+#ifdef CONFIG_KASAN_GENERIC
+
+/**
+ * kasan_poison_last_granule - mark the last granule of the memory range as
+ * inaccessible
+ * @address: range start address, must be aligned to KASAN_GRANULE_SIZE
+ * @size: range size
+ *
+ * This function is only available for the generic mode, as it's the only mode
+ * that has partially poisoned memory granules.
+ */
+void kasan_poison_last_granule(const void *address, size_t size);
+
+#else /* CONFIG_KASAN_GENERIC */
+
+static inline void kasan_poison_last_granule(const void *address, size_t size) { }
+
+#endif /* CONFIG_KASAN_GENERIC */
+
+/**
+ * kasan_poison - mark the memory range as inaccessible
+ * @addr: range start address, must be aligned to KASAN_GRANULE_SIZE
+ * @size: range size, must be aligned to KASAN_GRANULE_SIZE
+ * @value: value that's written to metadata for the range
+ * @init: whether to initialize the memory range (only for hardware tag-based)
+ */
+void kasan_poison(const void *addr, size_t size, u8 value, bool init);
+
 void __kasan_poison_slab(struct slab *slab);
 static __always_inline void kasan_poison_slab(struct slab *slab)
 {
