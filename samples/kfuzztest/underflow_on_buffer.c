@@ -50,3 +50,81 @@ FUZZ_TEST_SIMPLE(test_underflow_on_buffer)
 	underflow_on_buffer(data, datalen);
 	return 0;
 }
+
+struct llnode {
+	struct llnode *next;
+	int value;
+};
+
+struct ll {
+	struct llnode *head;
+};
+
+static void push(struct ll *ll, int value)
+{
+	struct llnode *new = kmalloc(sizeof(struct llnode), GFP_KERNEL);
+	new->value = value;
+	new->next = NULL;
+
+	struct llnode *curr = ll->head;
+	if (!curr) {
+		ll->head = new;
+		return;
+	}
+
+	while (curr && curr->next)
+		curr = curr->next;
+	curr->next = new;
+}
+
+static void pop_front(struct ll *ll)
+{
+	if (!ll->head)
+		return;
+	struct llnode *head = ll->head;
+	ll->head = ll->head->next;
+	kfree(head);
+}
+
+static void *initialize(size_t datalen, char *data)
+{
+	return kzalloc(sizeof(struct ll), GFP_KERNEL);
+}
+
+static void teardown(void *ll)
+{
+	struct ll *linked_list = ll;
+	struct llnode *curr = linked_list->head;
+	while (curr) {
+		struct llnode *next = curr->next;
+		kfree(curr);
+		curr = next;
+	}
+	kfree(ll);
+}
+
+static int op_push(void *comp, size_t datalen, char *data)
+{
+	struct ll *ll = comp;
+
+	if (datalen < sizeof(int))
+		return -1;
+	int val = *(int *)data;
+	push(ll, val);
+	return 0;
+}
+
+static int op_pop_front(void *comp, size_t datalen, char *data)
+{
+	struct ll *ll = comp;
+	pop_front(ll);
+	return 0;
+}
+
+static int check_correctness(void *comp)
+{
+	/* true. */
+	return 1;
+}
+
+KFUZZ_REGISTER_HARNESS(ll_fuzz_harness, initialize, teardown, check_correctness, op_push, op_pop_front)

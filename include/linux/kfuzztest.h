@@ -16,6 +16,19 @@
 
 #define KFUZZTEST_MAX_INPUT_SIZE (PAGE_SIZE * 16)
 
+struct kfuzztest_input {
+	size_t op_code;
+	size_t arg_size;
+	char *arg_data;
+};
+
+struct kfuzztest_input_seq {
+	size_t init_arg_size;
+	char *init_arg;
+	size_t num_args;
+	struct kfuzztest_input *args;
+};
+
 /* Common code for receiving inputs from userspace. */
 int kfuzztest_write_cb_common(struct file *filp, const char __user *buf, size_t len, loff_t *off, void **test_buffer);
 
@@ -23,6 +36,23 @@ struct kfuzztest_simple_target {
 	const char *name;
 	ssize_t (*write_input_cb)(struct file *filp, const char __user *buf, size_t len, loff_t *off);
 };
+
+/* Define a maximum number of supported operations so that we can iterate over
+ * the linker section without a headache. */
+#define KFUZZ_MAX_HARNESS_OPS 8
+
+struct __attribute__((aligned(128))) kfuzztest_harness {
+	const char *name;
+	void *(*initialize)(size_t, char *);
+	void (*teardown)(void *);
+	// Interpreted as bool: 0 = failure, anything 1 = success.
+	int (*check_correctness)(void *);
+	int (*operations[KFUZZ_MAX_HARNESS_OPS])(void *, size_t, char *);
+	ssize_t (*on_write)(struct file *filp, const char __user *buf, size_t len, loff_t *off);
+};
+
+int kfuzztest_harness_on_write(const struct kfuzztest_harness *harness, struct file *filp, const char __user *buf,
+			       size_t len, loff_t *off);
 
 /**
  * FUZZ_TEST_SIMPLE - defines a KFuzzTest target
@@ -60,31 +90,46 @@ struct kfuzztest_simple_target {
  * }
  *
  */
-#define FUZZ_TEST_SIMPLE(test_name)											\
-	static ssize_t kfuzztest_simple_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len,	\
-							     loff_t *off);						\
-	static ssize_t kfuzztest_simple_logic_##test_name(char *data, size_t datalen);					\
-	static const struct kfuzztest_simple_target __fuzz_test_simple__##test_name __section(				\
-		".kfuzztest_simple_target") __used = {									\
-		.name = #test_name,											\
-		.write_input_cb = kfuzztest_simple_write_cb_##test_name,						\
-	};														\
-	static ssize_t kfuzztest_simple_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len,	\
-							     loff_t *off)						\
-	{														\
-		void *buffer;												\
-		int ret;												\
-															\
-		ret = kfuzztest_write_cb_common(filp, buf, len, off, &buffer);						\
-		if (ret < 0)												\
-			goto out;											\
-		ret = kfuzztest_simple_logic_##test_name(buffer, len);							\
-		if (ret == 0)												\
-			ret = len;											\
-		kfree(buffer);												\
-out:															\
-		return ret;												\
-	}														\
+#define FUZZ_TEST_SIMPLE(test_name)                                                                                 \
+	static ssize_t kfuzztest_simple_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len, \
+							     loff_t *off);                                          \
+	static ssize_t kfuzztest_simple_logic_##test_name(char *data, size_t datalen);                              \
+	static const struct kfuzztest_simple_target __fuzz_test_simple__##test_name __section(                      \
+		".kfuzztest_simple_target") __used = {                                                              \
+		.name = #test_name,                                                                                 \
+		.write_input_cb = kfuzztest_simple_write_cb_##test_name,                                            \
+	};                                                                                                          \
+	static ssize_t kfuzztest_simple_write_cb_##test_name(struct file *filp, const char __user *buf, size_t len, \
+							     loff_t *off)                                           \
+	{                                                                                                           \
+		void *buffer;                                                                                       \
+		int ret;                                                                                            \
+                                                                                                                    \
+		ret = kfuzztest_write_cb_common(filp, buf, len, off, &buffer);                                      \
+		if (ret < 0)                                                                                        \
+			goto out;                                                                                   \
+		ret = kfuzztest_simple_logic_##test_name(buffer, len);                                              \
+		if (ret == 0)                                                                                       \
+			ret = len;                                                                                  \
+		kfree(buffer);                                                                                      \
+out:                                                                                                                \
+		return ret;                                                                                         \
+	}                                                                                                           \
 	static ssize_t kfuzztest_simple_logic_##test_name(char *data, size_t datalen)
 
+#define KFUZZ_REGISTER_HARNESS(harness_name, init, teardown, check_correctness, ...)                            \
+	static ssize_t kfuzztest_on_write_##harness_name(struct file *filp, const char __user *buf, size_t len, \
+							 loff_t *off);                                          \
+	static const struct kfuzztest_harness __kfuzz_harness_##harness_name __section(".kfuzztest_harness")    \
+		__used = { .name = #harness_name,                                                               \
+			   .initialize = init,                                                                  \
+			   .teardown = teardown,                                                                \
+			   .check_correctness = check_correctness,                                              \
+			   .operations = { __VA_ARGS__ },                                                       \
+			   .on_write = kfuzztest_on_write_##harness_name };                                     \
+	static ssize_t kfuzztest_on_write_##harness_name(struct file *filp, const char __user *buf, size_t len, \
+							 loff_t *off)                                           \
+	{                                                                                                       \
+		return kfuzztest_harness_on_write(&__kfuzz_harness_##harness_name, filp, buf, len, off);        \
+	};
 #endif /* KFUZZTEST_H */

@@ -20,6 +20,9 @@ MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 extern const struct kfuzztest_simple_target __kfuzztest_simple_targets_start[];
 extern const struct kfuzztest_simple_target __kfuzztest_simple_targets_end[];
 
+extern const struct kfuzztest_harness __kfuzztest_harness_start[];
+extern const struct kfuzztest_harness __kfuzztest_harness_end[];
+
 struct target_fops {
 	struct file_operations target_simple;
 };
@@ -49,10 +52,10 @@ static void cleanup_kfuzztest_state(struct kfuzztest_state *st)
 
 static const umode_t KFUZZTEST_INPUT_PERMS = 0222;
 
-static int initialize_target_dir(struct kfuzztest_state *st, const struct kfuzztest_simple_target *targ,
+static int initialize_target_dir(struct kfuzztest_state *st, const struct kfuzztest_harness *targ,
 				 struct target_fops *fops)
 {
-	struct dentry *dir, *input_simple;
+	struct dentry *dir, *input;
 	int err = 0;
 
 	dir = debugfs_create_dir(targ->name, st->kfuzztest_dir);
@@ -65,13 +68,13 @@ static int initialize_target_dir(struct kfuzztest_state *st, const struct kfuzzt
 		goto out;
 	}
 
-	input_simple = debugfs_create_file("input_simple", KFUZZTEST_INPUT_PERMS, dir, NULL, &fops->target_simple);
-	if (!input_simple)
+	input = debugfs_create_file("input", KFUZZTEST_INPUT_PERMS, dir, NULL, &fops->target_simple);
+	if (!input)
 		err = -ENOMEM;
-	else if (IS_ERR(input_simple))
-		err = PTR_ERR(input_simple);
+	else if (IS_ERR(input))
+		err = PTR_ERR(input);
 	if (err)
-		pr_info("kfuzztest: failed to create /kfuzztest/%s/input_simple", targ->name);
+		pr_info("kfuzztest: failed to create /kfuzztest/%s/input", targ->name);
 out:
 	return err;
 }
@@ -81,18 +84,18 @@ out:
  *
  * Each registered target in the ".kfuzztest_simple_target" section gets its own
  * subdirectory under "/sys/kernel/debug/kfuzztest/<test-name>" containing one
- * write-only "input_simple" file used for receiving binary inputs from
- * userspace.
+ * write-only "input" file used for receiving binary inputs from userspace.
  *
  * @return 0 on success or an error
  */
 static int __init kfuzztest_init(void)
 {
-	const struct kfuzztest_simple_target *targ;
+	const struct kfuzztest_harness *harness;
 	int err = 0;
 	int i = 0;
 
-	state.num_targets = __kfuzztest_simple_targets_end - __kfuzztest_simple_targets_start;
+	state.num_targets = (__kfuzztest_simple_targets_end - __kfuzztest_simple_targets_start) +
+			    (__kfuzztest_harness_end - __kfuzztest_harness_start);
 	state.target_fops = kzalloc(sizeof(struct target_fops) * state.num_targets, GFP_KERNEL);
 	if (!state.target_fops)
 		return -ENOMEM;
@@ -110,12 +113,12 @@ static int __init kfuzztest_init(void)
 		return err;
 	}
 
-	for (targ = __kfuzztest_simple_targets_start; targ < __kfuzztest_simple_targets_end; targ++, i++) {
+	for (harness = __kfuzztest_harness_start; harness < __kfuzztest_harness_end; harness++, i++) {
 		state.target_fops[i].target_simple = (struct file_operations){
 			.owner = THIS_MODULE,
-			.write = targ->write_input_cb,
+			.write = harness->on_write,
 		};
-		err = initialize_target_dir(&state, targ, &state.target_fops[i]);
+		err = initialize_target_dir(&state, harness, &state.target_fops[i]);
 		/*
 		 * Bail out if a single target fails to initialize. This avoids
 		 * partial setup, and a failure here likely indicates an issue
@@ -123,9 +126,25 @@ static int __init kfuzztest_init(void)
 		 */
 		if (err)
 			goto cleanup_failure;
-		pr_info("kfuzztest: registered target %s", targ->name);
+		pr_info("kfuzztest: registered target %s", harness->name);
 	}
 	return 0;
+
+	// for (targ = __kfuzztest_simple_targets_start; targ < __kfuzztest_simple_targets_end; targ++, i++) {
+	// 	state.target_fops[i].target_simple = (struct file_operations){
+	// 		.owner = THIS_MODULE,
+	// 		.write = targ->write_input_cb,
+	// 	};
+	// 	err = initialize_target_dir(&state, targ, &state.target_fops[i]);
+	// 	/*
+	// 	 * Bail out if a single target fails to initialize. This avoids
+	// 	 * partial setup, and a failure here likely indicates an issue
+	// 	 * with debugfs.
+	// 	 */
+	// 	if (err)
+	// 		goto cleanup_failure;
+	// 	pr_info("kfuzztest: registered target %s", targ->name);
+	// }
 
 cleanup_failure:
 	cleanup_kfuzztest_state(&state);

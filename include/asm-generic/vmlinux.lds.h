@@ -995,6 +995,10 @@
 	__kfuzztest_simple_targets_start = .;				\
 	KEEP(*(.kfuzztest_simple_target));				\
 	__kfuzztest_simple_targets_end = .;				\
+	. = ALIGN(PAGE_SIZE);						\
+	__kfuzztest_harness_start = .;					\
+	KEEP(*(.kfuzztest_harness));					\
+	__kfuzztest_harness_end = .;					\
 
 #else /* CONFIG_KFUZZTEST */
 #define KFUZZTEST_TABLE()
