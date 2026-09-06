@@ -17,9 +17,6 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ethan Graham <ethan.w.s.graham@gmail.com>");
 MODULE_DESCRIPTION("Kernel Fuzz Testing Framework (KFuzzTest)");
 
-extern const struct kfuzztest_simple_target __kfuzztest_simple_targets_start[];
-extern const struct kfuzztest_simple_target __kfuzztest_simple_targets_end[];
-
 extern const struct kfuzztest_harness __kfuzztest_harness_start[];
 extern const struct kfuzztest_harness __kfuzztest_harness_end[];
 
@@ -94,8 +91,7 @@ static int __init kfuzztest_init(void)
 	int err = 0;
 	int i = 0;
 
-	state.num_targets = (__kfuzztest_simple_targets_end - __kfuzztest_simple_targets_start) +
-			    (__kfuzztest_harness_end - __kfuzztest_harness_start);
+	state.num_targets = (__kfuzztest_harness_end - __kfuzztest_harness_start);
 	state.target_fops = kzalloc(sizeof(struct target_fops) * state.num_targets, GFP_KERNEL);
 	if (!state.target_fops)
 		return -ENOMEM;
@@ -129,22 +125,6 @@ static int __init kfuzztest_init(void)
 		pr_info("kfuzztest: registered target %s", harness->name);
 	}
 	return 0;
-
-	// for (targ = __kfuzztest_simple_targets_start; targ < __kfuzztest_simple_targets_end; targ++, i++) {
-	// 	state.target_fops[i].target_simple = (struct file_operations){
-	// 		.owner = THIS_MODULE,
-	// 		.write = targ->write_input_cb,
-	// 	};
-	// 	err = initialize_target_dir(&state, targ, &state.target_fops[i]);
-	// 	/*
-	// 	 * Bail out if a single target fails to initialize. This avoids
-	// 	 * partial setup, and a failure here likely indicates an issue
-	// 	 * with debugfs.
-	// 	 */
-	// 	if (err)
-	// 		goto cleanup_failure;
-	// 	pr_info("kfuzztest: registered target %s", targ->name);
-	// }
 
 cleanup_failure:
 	cleanup_kfuzztest_state(&state);

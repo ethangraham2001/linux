@@ -71,19 +71,19 @@ static int kfuzztest_invoke(const struct kfuzztest_harness *harness, struct kfuz
 
 	pr_info("invoking with %zu calls", in->num_args);
 
-	component = harness->initialize(in->init_arg_size, in->init_arg);
+	component = harness->initialize_fn(in->init_arg_size, in->init_arg);
 	for (i = 0; i < in->num_args; i++) {
 		pr_info("operation start: %zu", i);
 		arg = in->args[i];
 		ret = harness->operations[arg.op_code](component, arg.arg_size, arg.arg_data);
 		if (ret != 0)
 			return ret;
-		ret = harness->check_correctness(component);
+		ret = harness->check_correctness_fn(component);
 		if (!ret)
 			pr_warn("input %zu failed correctness check", i);
 		pr_info("operation end: %zu", i);
 	}
-	harness->teardown(component);
+	harness->teardown_fn(component);
 
 	pr_info("input passed correctness checks");
 	return 0;
@@ -100,26 +100,8 @@ static int kfuzztest_invoke_harness(const struct kfuzztest_harness *harness, cha
 	return kfuzztest_invoke(harness, in);
 }
 
-int kfuzztest_harness_on_write(const struct kfuzztest_harness *harness, struct file *filp, const char __user *buf,
-			       size_t len, loff_t *off)
-{
-	char *data;
-	int ret;
-
-	pr_info("invoke %s", harness->name);
-
-	ret = kfuzztest_write_cb_common(filp, buf, len, off, (void **)&data);
-	if (ret)
-		return ret;
-
-	pr_info("received input of length %zu", len);
-
-	ret = kfuzztest_invoke_harness(harness, data, len);
-	kfree(data);
-	return ret ? ret : len;
-}
-
-int kfuzztest_write_cb_common(struct file *filp, const char __user *buf, size_t len, loff_t *off, void **test_buffer)
+static int kfuzztest_write_cb_common(struct file *filp, const char __user *buf, size_t len, loff_t *off,
+				     void **test_buffer)
 {
 	void *buffer;
 	ssize_t ret;
@@ -157,4 +139,23 @@ int kfuzztest_write_cb_common(struct file *filp, const char __user *buf, size_t 
 
 	*test_buffer = buffer;
 	return 0;
+}
+
+int kfuzztest_harness_on_write(const struct kfuzztest_harness *harness, struct file *filp, const char __user *buf,
+			       size_t len, loff_t *off)
+{
+	char *data;
+	int ret;
+
+	pr_info("invoke %s", harness->name);
+
+	ret = kfuzztest_write_cb_common(filp, buf, len, off, (void **)&data);
+	if (ret)
+		return ret;
+
+	pr_info("received input of length %zu", len);
+
+	ret = kfuzztest_invoke_harness(harness, data, len);
+	kfree(data);
+	return ret ? ret : len;
 }

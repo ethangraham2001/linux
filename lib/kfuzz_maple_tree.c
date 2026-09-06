@@ -317,27 +317,23 @@ static void kfuzz_mt_check_contents(struct kfuzz_mt_state *st, struct maple_tree
  * (store_null). With keep_order set an inverted range is passed through
  * unnormalised to check that the API rejects it.
  */
-static int kfuzz_mt_op_store(void *comp, size_t len, char *data)
+// static int kfuzz_mt_op_store(void *comp, size_t len, char *data)
+KFUZZ_OP(kfuzz_mt_op_store, struct kfuzz_mt_state, struct kfuzz_mt_range_arg)
 {
-	struct kfuzz_mt_state *st = comp;
-	struct kfuzz_mt_range_arg arg;
 	unsigned long val = 0, first, last;
 	unsigned int c0, c1, c;
 	void *entry;
 	int ret;
 
-	if (!st || !kfuzz_mt_arg(st, len, data, &arg, sizeof(arg)))
-		return 0;
-
-	c0 = arg.first_cell % st->ncells;
-	c1 = arg.last_cell % st->ncells;
-	if (!(arg.keep_order & 1) && c0 > c1)
+	c0 = arg->first_cell % st->ncells;
+	c1 = arg->last_cell % st->ncells;
+	if (!(arg->keep_order & 1) && c0 > c1)
 		kfuzz_mt_swap_cells(&c0, &c1);
 
 	first = kfuzz_mt_cell_start(st, c0);
 	last = kfuzz_mt_cell_end(st, c1);
 
-	entry = (arg.store_null & 1) ? NULL : kfuzz_mt_new_entry(st, &val);
+	entry = (arg->store_null & 1) ? NULL : kfuzz_mt_new_entry(st, &val);
 	ret = mtree_store_range(&st->mt, first, last, entry, GFP_KERNEL);
 
 	if (first > last) {
@@ -366,7 +362,7 @@ static int kfuzz_mt_op_store(void *comp, size_t len, char *data)
  * writes always overwrite something"), so a failure is not evidence that the
  * range was occupied. A success over an occupied range, however, is a bug.
  */
-static int kfuzz_mt_op_insert(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_insert(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 	struct kfuzz_mt_range_arg arg;
@@ -433,7 +429,7 @@ static int kfuzz_mt_op_insert(void *comp, size_t len, char *data)
  * unique value, the erased range is exactly the maximal run of cells around the
  * target that share its value.
  */
-static int kfuzz_mt_op_erase(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_erase(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 	struct kfuzz_mt_point_arg arg;
@@ -479,7 +475,7 @@ static int kfuzz_mt_op_erase(void *comp, size_t len, char *data)
 }
 
 /* op 3: mtree_load(). */
-static int kfuzz_mt_op_load(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_load(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 	struct kfuzz_mt_point_arg arg;
@@ -504,7 +500,7 @@ static int kfuzz_mt_op_load(void *comp, size_t len, char *data)
 }
 
 /* op 4: iterate the whole tree and compare it against the shadow model. */
-static int kfuzz_mt_op_walk(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_walk(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 
@@ -594,7 +590,7 @@ static int kfuzz_mt_do_alloc(struct kfuzz_mt_state *st, size_t len, char *data, 
 }
 
 /* op 5: mtree_alloc_range(). */
-static int kfuzz_mt_op_alloc(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_alloc(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 
@@ -604,7 +600,7 @@ static int kfuzz_mt_op_alloc(void *comp, size_t len, char *data)
 }
 
 /* op 6: mtree_alloc_rrange(). */
-static int kfuzz_mt_op_alloc_rev(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_alloc_rev(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 
@@ -619,7 +615,7 @@ static int kfuzz_mt_op_alloc_rev(void *comp, size_t len, char *data)
  * The duplicate is a self-checking operation: it must be structurally valid and
  * must hold exactly the same contents as the source.
  */
-static int kfuzz_mt_op_dup(void *comp, size_t len, char *data)
+static int kfuzz_mt_op_dup(void *comp, char *data, size_t len)
 {
 	struct kfuzz_mt_state *st = comp;
 	struct maple_tree newmt;
