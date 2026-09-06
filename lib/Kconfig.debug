@@ -2555,6 +2555,20 @@ config TEST_MAPLE_TREE
 
 	  If unsure, say N.
 
+config KFUZZTEST_MAPLE_TREE
+	bool "KFuzzTest fuzz harness for the maple tree"
+	depends on KFUZZTEST
+	depends on DEBUG_MAPLE_TREE
+	help
+	  Enable this option to build a stateful KFuzzTest harness for the maple
+	  tree. The harness applies a fuzzer-supplied sequence of maple tree
+	  operations to a tree and checks the result after every operation with
+	  both mt_validate() and a shadow model maintained by the harness.
+
+	  It is exposed at /sys/kernel/debug/kfuzztest/maple_tree/input.
+
+	  If unsure, say N.
+
 config TEST_RHASHTABLE
 	tristate "Perform selftest on resizable hash table"
 	help
