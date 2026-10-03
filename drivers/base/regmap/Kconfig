@@ -68,6 +68,22 @@ config REGMAP_IRQ
 config REGMAP_RAM
 	tristate
 
+config KFUZZTEST_REGCACHE
+	bool "KFuzzTest fuzz harness for the regmap register cache"
+	depends on KFUZZTEST
+	depends on REGMAP
+	select REGMAP_RAM
+	help
+	  Enable this option to build a stateful KFuzzTest harness for the
+	  regmap register cache. The harness builds two RAM-backed regmaps with
+	  different cache backends over the same register space, applies a
+	  fuzzer-supplied operation sequence to both, and reports any behavioural
+	  difference between them.
+
+	  It is exposed at /sys/kernel/debug/kfuzztest/regcache/input.
+
+	  If unsure, say N.
+
 config REGMAP_SOUNDWIRE
 	tristate
 	depends on SOUNDWIRE
