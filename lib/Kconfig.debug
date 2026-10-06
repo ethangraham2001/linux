@@ -1996,6 +1996,7 @@ endmenu
 menu "Kernel Testing and Coverage"
 
 source "lib/kunit/Kconfig"
+source "lib/kfuzztest/Kconfig"
 
 config NOTIFIER_ERROR_INJECTION
 	tristate "Notifier error injection"
@@ -2551,6 +2552,63 @@ config TEST_MAPLE_TREE
 	  Enable this option to test the maple tree code functions at boot, or
 	  when the module is loaded. Enable "Debug Maple Trees" will enable
 	  more verbose output on failures.
+
+	  If unsure, say N.
+
+config KFUZZTEST_MAPLE_TREE
+	bool "KFuzzTest fuzz harness for the maple tree"
+	depends on KFUZZTEST
+	depends on DEBUG_MAPLE_TREE
+	help
+	  Enable this option to build a stateful KFuzzTest harness for the maple
+	  tree. The harness applies a fuzzer-supplied sequence of maple tree
+	  operations to a tree and checks the result after every operation with
+	  both mt_validate() and a shadow model maintained by the harness.
+
+	  It is exposed at /sys/kernel/debug/kfuzztest/maple_tree/input.
+
+	  If unsure, say N.
+
+config KFUZZTEST_IDA
+	bool "KFuzzTest fuzz harness for the IDA"
+	depends on KFUZZTEST
+	help
+	  Enable this option to build a stateful KFuzzTest harness for the IDA
+	  ID allocator. The harness maintains a shadow bitmap of allocated IDs
+	  and checks every allocation against it, including asserting that
+	  -ENOSPC is only returned when no ID in the requested range is free.
+
+	  It is exposed at /sys/kernel/debug/kfuzztest/ida/input.
+
+	  If unsure, say N.
+
+config KFUZZTEST_IDR
+	bool "KFuzzTest fuzz harness for the IDR"
+	depends on KFUZZTEST
+	help
+	  Enable this option to build a stateful KFuzzTest harness for the IDR.
+	  The harness covers idr_alloc(), idr_alloc_cyclic() - whose hidden
+	  idr_next cursor makes it stateful by construction - idr_remove(),
+	  idr_find(), idr_replace() and idr_get_next(), against a shadow map of
+	  ID to stored pointer. The fuzzer chooses idr_base, so the base-relative
+	  arithmetic is under test rather than assumed.
+
+	  It is exposed at /sys/kernel/debug/kfuzztest/idr/input.
+
+	  If unsure, say N.
+
+config KFUZZTEST_XARRAY
+	bool "KFuzzTest fuzz harness for the XArray"
+	depends on KFUZZTEST
+	depends on XARRAY_MULTI
+	help
+	  Enable this option to build a stateful KFuzzTest harness for the
+	  XArray. The harness applies a fuzzer-supplied sequence of XArray
+	  operations - including multi-index stores, search marks and entry
+	  splits - to an XArray and checks the result against a shadow model
+	  plus a set of model-free invariants.
+
+	  It is exposed at /sys/kernel/debug/kfuzztest/xarray/input.
 
 	  If unsure, say N.
 

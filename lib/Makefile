@@ -92,6 +92,10 @@ endif
 
 obj-$(CONFIG_TEST_XARRAY) += test_xarray.o
 obj-$(CONFIG_TEST_MAPLE_TREE) += test_maple_tree.o
+obj-$(CONFIG_KFUZZTEST_MAPLE_TREE) += kfuzz_maple_tree.o
+obj-$(CONFIG_KFUZZTEST_XARRAY) += kfuzz_xarray.o
+obj-$(CONFIG_KFUZZTEST_IDA) += kfuzz_ida.o
+obj-$(CONFIG_KFUZZTEST_IDR) += kfuzz_idr.o
 obj-$(CONFIG_TEST_PARMAN) += test_parman.o
 obj-$(CONFIG_TEST_KMOD) += test_kmod.o
 obj-$(CONFIG_TEST_DEBUG_VIRTUAL) += test_debug_virtual.o
@@ -323,6 +327,8 @@ obj-$(CONFIG_GENERIC_LIB_MULDI3) += muldi3.o
 obj-$(CONFIG_GENERIC_LIB_CMPDI2) += cmpdi2.o
 obj-$(CONFIG_GENERIC_LIB_UCMPDI2) += ucmpdi2.o
 obj-$(CONFIG_OBJAGG) += objagg.o
+
+obj-$(CONFIG_KFUZZTEST) += kfuzztest/
 
 # pldmfw library
 obj-$(CONFIG_PLDMFW) += pldmfw/
